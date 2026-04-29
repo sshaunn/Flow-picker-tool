@@ -1,0 +1,26 @@
+generation:
+  max_round_per_task: 8
+  max_retry_count: 2
+  page_action_timeout_sec: 60
+  generation_wait_timeout_sec: 600
+
+cooldown:
+  consecutive_failure_threshold: 3
+  cooldown_duration_short_min: 30
+  cooldown_duration_long_min: 60
+  page_failure_window_min: 5
+  page_failure_threshold: 3
+
+flow:
+  # Real Flow tool URL (confirmed by following Flow's own redirect chain).
+  # ``labs.google/flow`` is the marketing page; the actual generation app
+  # lives at /fx/tools/flow.
+  entry_url: "https://labs.google/fx/tools/flow"
+
+recovery:
+  running_stale_minutes: 30
+  zombie_recovery_limit: 3
+
+output_root: "./output"
+db_path: "./flow_harvester.sqlite"
+log_root: "./logs"

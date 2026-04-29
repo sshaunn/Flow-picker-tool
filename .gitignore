@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+ENV/
+pip-wheel-metadata/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Playwright / browsers
+playwright-report/
+test-results/
+.playwright/
+
+# Local runtime data
+output/
+logs/
+profiles/
+downloads/
+screenshots/
+*.log
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+
+# Input data with customer assets
+input/images/
+input/*.xlsx
+input/*.xls
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+secrets/
+
+# Per-account workstation config (profile paths + project URLs)
+config/workstations.yaml
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build/package metadata
+*.egg-info/
+
+# Build artifacts
+dist/
+build/
+tmp/
+temp/
+
+docs/

@@ -1,0 +1,192 @@
+# Flow page selectors and exception phrases.
+#
+# Captured against https://labs.google/fx/tools/flow/project/<id> on
+# 2026-04-28 with the Video tab active (Veo 3.1 Fast, 9:16, x1, 8s).
+# Re-run the discover snippet whenever Flow ships a new build.
+#
+# Notes for whoever updates this file:
+#   * sc-* class hashes change between Flow deploys — DO NOT use them.
+#     Prefer role/data-state/aria-label or the radix data-radix-collection-item.
+#   * radix-:rXX: ids are dynamic per page load — also unsafe.
+#   * The Slate.js prompt editor is a contenteditable div, not a textarea —
+#     the Playwright adapter knows to use keyboard.type() for it.
+
+entry_url_pattern: "https://labs.google/fx/tools/flow"
+account_language: "en-US"
+
+state_phrases:
+  unusual_activity:
+    # Be specific: the lone "unusual activity" word fragment shows up in
+    # Google's help links / footer / privacy notices and would false-match
+    # any page that has those. Use the full sentence Google's risk system
+    # actually serves when an account is flagged.
+    #
+    # Removed (false-positive culprits — ALWAYS present in normal Flow UI):
+    #   * "Please visit the help center for more information" — appears
+    #     in safety/footer text on every page; matched even on healthy
+    #     accounts mid-generation, sending the WS to cooldown when the
+    #     account was actually fine. Confirmed by manual generation
+    #     working immediately after ``error_type=unusual_activity``.
+    #   * "Verify it's you" — already covered by captcha_or_verification
+    #     and appears on Google account helper links unrelated to bans.
+    - "We've detected unusual activity"
+    - "we've detected unusual activity"
+    - "We noticed some unusual activity"  # Flow's per-generation flag
+    - "we noticed some unusual activity"
+    - "Unusual activity from your computer network"
+  login_required:
+    - "Use your Google Account"
+    - "Sign in - Google Accounts"
+  captcha_or_verification:
+    - "I'm not a robot"
+    - "verify it's you"
+    - "Confirm it's you"
+  page_load_failed:
+    - "this page isn't working"
+    - "ERR_CONNECTION"
+    - "Aw, snap"
+  # Flow service-level rate limit / overload. NOT a workstation-specific issue —
+  # treat it as a transient page failure and back off; do not flip to manual_check.
+  service_unavailable:
+    - "Flow is experiencing high demand"
+    - "Please try again in a few minutes"
+    - "We're experiencing high demand"
+    - "Service is temporarily unavailable"
+    - "Quota exceeded"
+
+  # Per-generation transient failure — Flow's optional audio sub-model
+  # failed. The video model itself is fine, the workstation is fine, the
+  # account is fine. Recovery: open Flow settings → toggle "Generate
+  # silent videos" → click Generate again. The worker handles this in
+  # ``_handle_audio_failure_recovery`` (TODO once settings DOM mapped).
+  generation_retryable:
+    - "Audio generation failed"
+    - "Please try a different prompt or send feedback"
+    - "you have not been charged for this generation"
+    - "return silent videos"
+
+selectors:
+  # Slate.js editor; the adapter focuses then types via keyboard.
+  prompt_input: '[role="textbox"][data-slate-editor="true"]'
+
+  # Legacy hidden <input type="file"> that goes to "Add Media" / Ingredients
+  # reference list — uploads here are NOT attached to the prompt and Flow
+  # routes the request through the image-only model (Nano Banana). Kept
+  # for back-compat / mock tests; the production worker uses the
+  # prompt_attach_* path below.
+  upload_button: 'input[type="file"]'
+
+  # ── Prompt-attach upload (the right path for "image is part of the prompt")
+  # Click the small "+" button next to the prompt → opens a picker dialog
+  # with an "Upload image" entry → clicking that triggers the OS file
+  # chooser. Once chosen, the image becomes a chip inside the prompt and
+  # Flow routes the request through Veo (video model).
+  prompt_attach_button: 'button[data-state]:has-text("add_2")'
+  prompt_attach_dialog: '[role="dialog"][data-state="open"]'
+  prompt_attach_upload_target: 'text="Upload image"'
+
+  # The "Create" button with the arrow_forward Material Symbol.
+  # The other on-page "Create" is the model-picker (icon: add_2).
+  generate_button: 'button:has-text("arrow_forward"):has-text("Create")'
+
+  # Each candidate is rendered as a <video> inside Flow's virtualized list.
+  # The Playwright adapter snapshots video src URLs *before* clicking
+  # Create, then collects the URLs that newly appear after — this avoids
+  # treating historical project videos as fresh candidates.
+  candidate_items: 'div[data-testid="virtuoso-item-list"] video'
+
+  # Flow exposes the actual media URL via a tRPC redirect endpoint on the
+  # video's ``src`` attribute. The adapter fetches that URL with the
+  # logged-in browser context (cookies attached) — it does *not* click a
+  # download button, since Flow doesn't have a stable per-card download
+  # control. This regex defines what counts as a "real" candidate src.
+  candidate_src_pattern: 'media\.getMediaUrlRedirect'
+
+  # Legacy/unused fields kept so existing tests load without errors. The
+  # Playwright adapter no longer relies on these; remove once test mocks
+  # are migrated.
+  generation_complete_marker: '[data-testid="virtuoso-item-list"]'
+  candidate_download_button: 'video'
+
+# Selectors used by ``_apply_flow_mode()`` to force the project UI into a
+# known state at the start of every run. Each entry is best-effort; if the
+# DOM moves the adapter logs a warning and continues.
+mode_controls:
+  # The "settings summary" trigger button: shows current model + aspect
+  # + output count (e.g. "🍌 Nano Banana 2 / crop_16_9 / x2"). Clicking
+  # it opens the panel where mode tabs (Video/Image, Frames/Ingredients,
+  # 9:16, x1-x4, 4s-8s, model picker) live. The panel is closed by
+  # default on a fresh page load, so we open it before applying preset.
+  settings_trigger:
+    # Most reliable: every aspect-ratio token starts with "crop_". The
+    # settings trigger button always shows mode + aspect + count summary,
+    # so it always contains a crop_* token.
+    - 'button[data-state]:has-text("crop_")'
+    # Fallbacks if Flow ever ships a layout that drops the aspect token.
+    - 'button[data-state]:has-text("Veo")'
+    - 'button[data-state]:has-text("Nano Banana")'
+    - 'button[data-state]:has-text("Imagen")'
+    - 'button[data-state]:has-text("Gemini")'
+  # Top-level Image / Video toggle.
+  tab_video: 'button[role="tab"][id$="-trigger-VIDEO"]'
+  tab_image: 'button[role="tab"][id$="-trigger-IMAGE"]'
+
+  # Sub-tabs inside Video mode.
+  subtab_ingredients: 'button[role="tab"][id$="-trigger-VIDEO_REFERENCES"]'
+  subtab_frames: 'button[role="tab"][id$="-trigger-VIDEO_FRAMES"]'
+
+  # Aspect ratio tabs.
+  aspect_9_16: 'button[role="tab"][id$="-trigger-PORTRAIT"]'
+  aspect_16_9: 'button[role="tab"][id$="-trigger-LANDSCAPE"]'
+  aspect_1_1: 'button[role="tab"][id$="-trigger-SQUARE"]'
+
+  # Output count + duration tabs are disambiguated by visible text + id
+  # suffix. We try multiple shapes because Flow's panel sometimes lazy-
+  # mounts the output count strip after the duration strip — using both
+  # text and id-suffix selectors means we still find it when the text
+  # variant alone times out.
+  output_count_template: 'button[role="tab"]:has-text("x{N}"), button[role="tab"][id$="-trigger-{N}"]'
+  duration_template: 'button[role="tab"]:has-text("{S}s"), button[role="tab"][id$="-trigger-{S}"]'
+
+  # Model picker. Flow renders the model name + an ``arrow_drop_down``
+  # ligature inside the same trigger button. Once clicked, a radix
+  # DropdownMenu opens with model options as ``[role="menuitem"]``.
+  model_dropdown_button: 'button:has-text("arrow_drop_down")'
+  # Any of these substrings inside ``model_dropdown_button`` text means we
+  # have found the model picker (vs. an unrelated dropdown elsewhere).
+  model_keywords:
+    - "Veo"
+    - "Imagen"
+    - "Nano Banana"
+    - "Gemini"
+  model_menu_item_template: '[role="menuitem"]:has-text("{NAME}")'
+
+timeouts:
+  page_action: 60
+  generation_complete: 600
+  download: 120
+
+# Buttons to click if they appear on page open. Flow shows agreement
+# / TOS modals before letting paid models be used; cookie banners may
+# also appear after a fresh login. Selectors are tried in order; the first
+# *visible* match is clicked. Best-effort — none required.
+popup_dismiss_buttons:
+  # Common explicit-agreement buttons inside a modal dialog.
+  - 'div[role="dialog"] button:has-text("I agree")'
+  - 'div[role="dialog"] button:has-text("Agree")'
+  - 'div[role="dialog"] button:has-text("Accept")'
+  - 'div[role="dialog"] button:has-text("Continue")'
+  - 'div[role="dialog"] button:has-text("Got it")'
+  - 'div[role="dialog"] button:has-text("OK")'
+  - 'div[role="dialog"] button:has-text("Confirm")'
+  # "What's new" / onboarding / changelog modal — Flow ships a "Get
+  # started" CTA the first time a project is opened in a fresh session.
+  - 'div[role="dialog"] button:has-text("Get started")'
+  - 'div[role="dialog"] button:has-text("Skip")'
+  - 'div[role="dialog"] button:has-text("Maybe later")'
+  - 'div[role="dialog"] button:has-text("No thanks")'
+  # Cookie banners (Google's standard "Accept all" pattern).
+  - 'button[aria-label*="ccept" i]'
+  - 'button:has-text("Accept all")'
+  # Radix AlertDialog action button.
+  - '[role="alertdialog"] button:not([aria-label*="ancel" i]):not(:has-text("Cancel"))'
