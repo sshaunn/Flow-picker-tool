@@ -23,6 +23,15 @@ class GenerationSettings(BaseModel):
     max_retry_count: int = Field(2, ge=0)
     page_action_timeout_sec: int = Field(60, gt=0)
     generation_wait_timeout_sec: int = Field(600, gt=0)
+    # Stagger between workstation launches in the multi-runner.
+    # Without this, N workstations all fire their first
+    # ``trigger_generation`` within seconds of each other from the same
+    # IP, which Google's Veo backend treats as a single bot fanning out
+    # parallel requests and flags every workstation with unusual_activity
+    # at once. A 60-90s stagger ensures only one Veo request is in flight
+    # per IP at any moment, matching the natural pace of a human switching
+    # between accounts.
+    inter_workstation_launch_stagger_sec: int = Field(60, ge=0)
     # Pause between consecutive generation rounds inside the same task.
     # Spreads requests so Google's per-account rate-limit (the trigger
     # behind unusual_activity) is less likely to fire. Applied AFTER the

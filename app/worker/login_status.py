@@ -91,37 +91,18 @@ def probe_workstation(
 
     try:
         with sync_playwright() as pw:
-            # Headless Chromium leaks automation hints (Headless UA token,
-            # navigator.webdriver=true, missing chrome.runtime, etc.) and
-            # Google's fraud system reads those to invalidate the session
-            # cookie even when it's valid. Mask the most obvious tells so
-            # the probe matches what the real (headed) worker sees.
-            launch_args = [
-                "--disable-blink-features=AutomationControlled",
-                "--disable-infobars",
-            ]
-            user_agent = (
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/131.0.0.0 Safari/537.36"
-            )
+            # Match the launch shape used by ``PlaywrightFlowPort.open()``:
+            # patchright + system Chrome + minimal customisation. Adding
+            # custom UA / args / init scripts here triggered ERR_CONNECTION_
+            # CLOSED in the wild — patchright handles its own anti-detection
+            # patches and stacking ours on top breaks the launch.
             ctx = pw.chromium.launch_persistent_context(
                 user_data_dir=str(profile_path),
                 channel="chrome",
                 headless=headless,
-                viewport={"width": 1280, "height": 800},
-                args=launch_args,
-                ignore_default_args=["--enable-automation"],
-                user_agent=user_agent,
-                locale="en-US",
+                no_viewport=True,
+                chromium_sandbox=True,
             )
-            try:
-                ctx.add_init_script(
-                    "Object.defineProperty(navigator, 'webdriver', "
-                    "{get: () => undefined});"
-                )
-            except Exception:  # noqa: BLE001
-                pass
             page = ctx.pages[0] if ctx.pages else ctx.new_page()
             page.set_default_timeout(timeout_sec * 1000)
             # Prefer the project URL — that's the page that actually renders

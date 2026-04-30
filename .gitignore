@@ -29,6 +29,8 @@ downloads/
 screenshots/
 *.log
 *.sqlite
+*.sqlite-shm
+*.sqlite-wal
 *.sqlite3
 *.db
 *.db-shm

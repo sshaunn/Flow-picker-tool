@@ -217,19 +217,7 @@ def execute_task(
             ]
             try:
                 flow.upload_source_assets(assets)
-                # Humanization: real users take seconds to read the upload
-                # state and start typing. Without these pauses, Google's
-                # automation heuristics flag the upload→paste→Create
-                # sequence (sub-second between each step) as bot-like and
-                # the request fires unusual_activity even on healthy
-                # accounts. Empirically observed: same account that hand-
-                # generates fine returns unusual_activity when our worker
-                # tries the same project. Two short pauses with jitter
-                # make the trace look more like a human.
-                import random
-                time.sleep(2.0 + random.uniform(0.0, 2.0))
                 flow.paste_prompt(task.video_prompt)
-                time.sleep(3.0 + random.uniform(0.0, 3.0))
                 flow.trigger_generation()
             except FlowPortError as exc:
                 last_error_type = "generation_failed"

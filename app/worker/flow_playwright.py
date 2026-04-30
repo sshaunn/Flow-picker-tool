@@ -177,20 +177,19 @@ class PlaywrightFlowPort(FlowPort):
             # ExecutionContext isolation, AutomationControlled flag) and
             # piling our own stealth on top creates conflicts that
             # caused ERR_CONNECTION_CLOSED in earlier attempts.
+            # Patchright official recommendation: channel="chrome" +
+            # headless=False + no_viewport=True + no custom UA / args.
+            # ``no_viewport`` lets Chrome use its default window size
+            # which is itself a fingerprint signal — fixed 1280x800
+            # viewport is suspicious because real users have varied
+            # window sizes. Drop ``slow_mo`` and ``accept_downloads``
+            # too — accept_downloads stays True via Playwright default.
             self._context = self._pw.chromium.launch_persistent_context(
                 user_data_dir=str(self.profile_path),
                 channel="chrome",
                 headless=self._headless,
-                slow_mo=self._slow_mo_ms,
-                viewport={"width": 1280, "height": 800},
-                accept_downloads=True,
-                # Strip the visible "--no-sandbox / Stability and security
-                # will suffer" warning banner without touching the keychain
-                # flags (those are required for cookie decryption — see
-                # earlier note). ``--enable-automation`` is also stripped
-                # to belt-and-suspenders on top of patchright's own patches.
-                ignore_default_args=["--no-sandbox", "--enable-automation"],
-                locale="en-US",
+                no_viewport=True,
+                chromium_sandbox=True,
             )
         except Exception as exc:
             self._teardown_pw()
@@ -561,19 +560,6 @@ class PlaywrightFlowPort(FlowPort):
             if idx < len(assets):
                 self._page.wait_for_timeout(800)
 
-    def _count_prompt_chips(self) -> int:
-        """Number of ``<img>`` chips currently mounted inside the prompt
-        editor. We use this as the ground-truth signal for "asset
-        successfully attached" — Flow's dialog can close on a wrong
-        click without actually attaching anything, so checking dialog
-        visibility alone is not enough.
-        """
-        try:
-            sel = self._cfg.selectors.prompt_input
-            return self._page.locator(sel).first.locator("img").count()
-        except Exception:  # noqa: BLE001
-            return 0
-
     def _try_attach_existing(self, dialog, existing, filename: str) -> bool:
         """Click strategies for attaching an existing library asset.
 
@@ -748,56 +734,24 @@ class PlaywrightFlowPort(FlowPort):
         try:
             locator = self._page.locator(sel).first
             locator.click()
-            # Select-all + delete to clear any pre-filled state. Slate's
-            # void chips (image attachments) are part of the document and
-            # ARE selected/deleted by this — so this only works when the
-            # caller order is upload → paste, with paste KEEPING the chip
-            # alive (chips usually re-attach as inline-void nodes that
-            # survive Backspace). If the chip disappears, look for the
-            # diagnostic warning below.
             modifier = "Meta" if self._is_mac() else "Control"
-            before = self._snapshot_prompt_state()
             self._page.keyboard.press(f"{modifier}+A")
             self._page.keyboard.press("Backspace")
-            # ``insert_text`` was tried as a faster paste alternative but
-            # produced "Failed, oops something went wrong" from Veo —
-            # likely the synthetic insertText event bypassed validation
-            # Slate runs on real keystrokes. ``keyboard.type`` per-char
-            # works reliably; no delay needed since patchright handles
-            # automation detection.
+            # ``keyboard.type`` per-char is the only reliable path —
+            # ``insert_text`` causes Veo to reject the generation with
+            # "Failed, oops something went wrong" because Slate's input
+            # validation expects keystroke events.
             self._page.keyboard.type(prompt)
-            after = self._snapshot_prompt_state()
-
-            def _img_total(state: dict) -> int:
-                return sum(
-                    (state.get(scope) or {}).get("img_count", 0)
-                    for scope in ("editor", "parent_1", "parent_2", "parent_3")
-                )
-
-            _LOG.info("[prompt] paste before=%s", before)
-            _LOG.info("[prompt] paste after=%s", after)
-            chips_before = _img_total(before)
-            chips_after = _img_total(after)
-            if chips_before > chips_after:
-                _LOG.warning(
-                    "[prompt] chip total dropped %d -> %d during paste — "
-                    "Backspace ate the image attachment",
-                    chips_before, chips_after,
-                )
         except Exception as exc:
             raise FlowPortError(f"prompt input failed: {exc}") from exc
 
     def _snapshot_prompt_state(self) -> dict:
-        """Return a dict describing the prompt area's DOM: text length,
-        chips at editor + outer container scope, and parent context.
+        """Return a slim dict describing the Slate editor + its 3 ancestors.
 
-        Flow's chip is rendered NEXT TO (sibling of) the Slate editor —
-        not inside it. So we sample at three scopes:
-          * editor: the ``[data-slate-editor]`` div text-only state
-          * parent: nearest ancestor containing both editor + chips
-          * area: an outer container with the action buttons (3 levels up)
-
-        That way we catch the actual chip wherever Flow puts it.
+        Flow renders the image chip in a sibling of the Slate editor, not
+        inside it, so we count ``<img>`` at the editor itself and at three
+        levels of ancestor. Used by ``trigger_generation`` to log a sanity
+        check before clicking Create.
         """
         try:
             sel = self._cfg.selectors.prompt_input
@@ -805,34 +759,18 @@ class PlaywrightFlowPort(FlowPort):
                 """sel => {
                     const el = document.querySelector(sel);
                     if (!el) return {found: false};
-                    function describe(node) {
-                        if (!node) return null;
-                        const text = (node.innerText || '').trim();
-                        const imgs = node.querySelectorAll('img');
-                        const imgsAlt = [...imgs].map(i => i.getAttribute('alt') || '').slice(0, 5);
-                        const tagCounts = {};
-                        node.querySelectorAll('*').forEach(c => {
-                            tagCounts[c.tagName] = (tagCounts[c.tagName] || 0) + 1;
-                        });
-                        return {
-                            tag: node.tagName,
-                            cls: (node.className || '').toString().slice(0, 60),
-                            text_len: text.length,
-                            text_preview: text.slice(0, 60),
-                            img_count: imgs.length,
-                            img_alts: imgsAlt,
-                            tag_counts: tagCounts,
-                        };
-                    }
-                    let p2 = el.parentElement;
-                    let p3 = p2 && p2.parentElement;
-                    let p4 = p3 && p3.parentElement;
+                    const describe = (n) => n ? {
+                        text_len: (n.innerText || '').trim().length,
+                        text_preview: (n.innerText || '').trim().slice(0, 60),
+                        img_count: n.querySelectorAll('img').length,
+                    } : null;
                     return {
                         found: true,
                         editor: describe(el),
-                        parent_1: describe(p2),
-                        parent_2: describe(p3),
-                        parent_3: describe(p4),
+                        parent_1: describe(el.parentElement),
+                        parent_2: describe(el.parentElement && el.parentElement.parentElement),
+                        parent_3: describe(el.parentElement && el.parentElement.parentElement
+                                            && el.parentElement.parentElement.parentElement),
                     };
                 }""",
                 sel,
@@ -1660,34 +1598,16 @@ def open_login_helper(
     profile_path.mkdir(parents=True, exist_ok=True)
     pw = sync_playwright().start()
     try:
+        # Minimal config matches PlaywrightFlowPort.open() — patchright
+        # adds its own anti-detection patches; stacking custom UA / args /
+        # init scripts on top causes ERR_CONNECTION_CLOSED on goto.
         ctx = pw.chromium.launch_persistent_context(
             user_data_dir=str(profile_path),
             channel="chrome",
             headless=headless,
-            viewport={"width": 1280, "height": 800},
-            # Match the launch args used by PlaywrightFlowPort so the cookie
-            # the operator just established stays valid in subsequent runs.
-            # Browser fingerprint mismatch between login-time and run-time
-            # is enough for Google to flip the session into a re-auth loop.
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--disable-infobars",
-            ],
-            ignore_default_args=["--enable-automation"],
-            user_agent=(
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/131.0.0.0 Safari/537.36"
-            ),
-            locale="en-US",
+            no_viewport=True,
+            chromium_sandbox=True,
         )
-        try:
-            ctx.add_init_script(
-                "Object.defineProperty(navigator, 'webdriver', "
-                "{get: () => undefined});"
-            )
-        except Exception:  # noqa: BLE001
-            pass
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         page.goto(entry_url, wait_until="domcontentloaded")
         try:

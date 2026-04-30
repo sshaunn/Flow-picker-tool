@@ -16,6 +16,7 @@ Workstation isolation: a workstation that ends up in ``manual_check`` /
 from __future__ import annotations
 
 import threading
+import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date
@@ -179,6 +180,11 @@ def run_multi_workstation(
 
     main_conn = connect(db_path)
     in_flight: dict[str, Future] = {}
+    # Last workstation submit timestamp — used to stagger launches so
+    # multiple workstations don't fire their Veo requests within the
+    # same second from the same IP (which Google flags as bot fan-out
+    # and bans every workstation simultaneously).
+    last_submit_time: list[float] = [0.0]
 
     def _release_done() -> None:
         for ws_id in list(in_flight):
@@ -231,6 +237,25 @@ def run_multi_workstation(
 
                 ws_cfg = by_id[claim.workstation_id]
                 plans = (mock_round_plans_per_ws or {}).get(ws_cfg.id)
+
+                # Stagger workstation launches. ``inter_workstation_launch_stagger_sec``
+                # is the minimum gap between consecutive submits so the
+                # second-and-later workstations don't hit Google with
+                # parallel Veo requests from the same IP.
+                stagger_sec = getattr(
+                    config.generation, "inter_workstation_launch_stagger_sec", 0
+                )
+                if stagger_sec > 0 and last_submit_time[0] > 0:
+                    elapsed = time.time() - last_submit_time[0]
+                    if elapsed < stagger_sec:
+                        wait = stagger_sec - elapsed
+                        log.info(
+                            "[stagger] sleeping %.1fs before launching ws=%s "
+                            "(last submit %.1fs ago)",
+                            wait, ws_cfg.id, elapsed,
+                        )
+                        time.sleep(wait)
+                last_submit_time[0] = time.time()
 
                 fut = pool.submit(
                     _execute_in_thread,
