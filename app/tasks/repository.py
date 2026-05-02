@@ -310,13 +310,26 @@ def list_tasks(
     status: str | None = None,
     limit: int | None = None,
 ) -> list[TaskRecord]:
-    """List tasks, optionally filtered by status, newest first."""
+    """List tasks, optionally filtered by status. Active tasks (running /
+    pending / retry_waiting) sort to the top so the dashboard's recent
+    panel shows live work even when many older terminal tasks exist."""
     sql = f"SELECT {_LIST_COLUMNS} FROM tasks"
     params: list = []
     if status is not None:
         sql += " WHERE status = ?"
         params.append(status)
-    sql += " ORDER BY created_at DESC, task_id DESC"
+    sql += (
+        " ORDER BY CASE status"
+        "   WHEN 'running' THEN 0"
+        "   WHEN 'pending' THEN 1"
+        "   WHEN 'retry_waiting' THEN 2"
+        "   WHEN 'manual_review' THEN 3"
+        "   WHEN 'success' THEN 4"
+        "   WHEN 'failed' THEN 5"
+        "   WHEN 'download_failed' THEN 6"
+        "   ELSE 7"
+        " END, created_at DESC, task_id DESC"
+    )
     if limit is not None:
         sql += " LIMIT ?"
         params.append(limit)

@@ -439,6 +439,20 @@ def _download_round(
                 task.task_id, round_index, candidate.sequence_no,
             )
             continue
+        # Bump live progress counters so the dashboard's WebSocket push
+        # reflects each downloaded candidate as it lands, instead of
+        # appearing stuck at the round-start value until finalize_task.
+        conn.execute(
+            """
+            UPDATE tasks SET
+                downloaded_count = (
+                    SELECT COUNT(*) FROM task_results WHERE task_id = ?
+                ),
+                generation_round_count = MAX(generation_round_count, ?)
+            WHERE task_id = ?
+            """,
+            (task.task_id, round_index, task.task_id),
+        )
         persisted.append(
             {
                 "task_id": task.task_id,

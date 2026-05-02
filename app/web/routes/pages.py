@@ -374,15 +374,21 @@ async def tasks_create(
 def task_detail(
     request: Request, task_id: str,
     conn: sqlite3.Connection = Depends(get_db_conn),
+    config=Depends(get_config),
 ) -> HTMLResponse:
     record = get_task(conn, task_id)
     if record is None:
         raise HTTPException(status_code=404, detail=f"task not found: {task_id}")
+    from app.web.routes.ws import _task_results_for_render
+    results = _task_results_for_render(
+        conn, task_id, Path(config.output_root),
+    )
     return templates.TemplateResponse(
         request, "task_detail.html",
         {
             "active_page": "tasks",
             "task": record,
             "assets": get_task_assets(conn, task_id),
+            "results": results,
         },
     )

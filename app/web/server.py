@@ -23,6 +23,7 @@ from app.config.loader import AppConfig
 from app.db.connection import connect
 from app.db.schema import init_schema
 from app.scheduler.daemon import SchedulerDaemon
+from app.web.routes import files as files_routes
 from app.web.routes import login as login_routes
 from app.web.routes import pages as page_routes
 from app.web.routes import scheduler as scheduler_routes
@@ -110,6 +111,7 @@ def create_app(
     app.include_router(page_routes.router)
     app.include_router(ws_routes_module.router)
     app.include_router(login_routes.router)
+    app.include_router(files_routes.router)
 
     static_dir = Path(__file__).parent / "static"
     if static_dir.exists():

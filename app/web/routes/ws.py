@@ -19,8 +19,10 @@ from pathlib import Path
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.templating import Jinja2Templates
 
+from pathlib import Path as _PathlibPath
+
 from app.db.connection import connect
-from app.tasks.repository import list_tasks
+from app.tasks.repository import get_task, get_task_assets, list_tasks
 from app.workstations.repository import list_workstations
 
 
@@ -82,6 +84,69 @@ async def dashboard_ws(websocket: WebSocket) -> None:
     try:
         while True:
             await websocket.send_text(_render_dashboard(app))
+            await asyncio.sleep(interval)
+    except WebSocketDisconnect:
+        return
+
+
+def _task_results_for_render(conn, task_id: str, output_root: _PathlibPath) -> list[dict]:
+    """Convert ``task_results`` rows into the shape the partial template
+    expects: ``{round, seq, rel_path}``. Paths are made relative to
+    ``output_root`` so the /files route can resolve them safely."""
+    rows = conn.execute(
+        "SELECT generation_round, sequence_no, video_file_path "
+        "FROM task_results WHERE task_id = ? "
+        "ORDER BY generation_round ASC, sequence_no ASC",
+        (task_id,),
+    ).fetchall()
+    out: list[dict] = []
+    for r in rows:
+        try:
+            rel = _PathlibPath(r["video_file_path"]).resolve().relative_to(
+                output_root.resolve()
+            )
+        except (ValueError, OSError):
+            continue
+        out.append({
+            "round": r["generation_round"],
+            "seq": r["sequence_no"],
+            "rel_path": str(rel),
+        })
+    return out
+
+
+def _render_task_detail(app, task_id: str) -> str | None:
+    cfg = app.state.config
+    conn = connect(cfg.db_path, check_same_thread=False)
+    try:
+        record = get_task(conn, task_id)
+        if record is None:
+            return None
+        assets = get_task_assets(conn, task_id)
+        results = _task_results_for_render(conn, task_id, _PathlibPath(cfg.output_root))
+    finally:
+        conn.close()
+    template = _templates.get_template("_task_detail_grid.html")
+    return template.render(task=record, assets=assets, results=results)
+
+
+@router.websocket("/ws/task/{task_id}")
+async def task_detail_ws(websocket: WebSocket, task_id: str) -> None:
+    """Push the task detail inner-grid every ``push_interval_sec``.
+
+    Closes the socket if the task disappears (deleted by the operator)
+    so the client's reconnect loop does the right thing.
+    """
+    await websocket.accept()
+    app = websocket.app
+    interval = getattr(app.state, "push_interval_sec", 2.0)
+    try:
+        while True:
+            html = _render_task_detail(app, task_id)
+            if html is None:
+                await websocket.close()
+                return
+            await websocket.send_text(html)
             await asyncio.sleep(interval)
     except WebSocketDisconnect:
         return

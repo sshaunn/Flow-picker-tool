@@ -1,0 +1,108 @@
+{% from "_macros.html" import task_status_badge, progress_bar %}
+{# Mutable inner contents of the task detail page. Both the GET handler
+   and the /ws/task/{id} push render this same partial so the page hydrates
+   identically on first load and on every update tick. #}
+
+<section class="bg-white rounded-lg border border-slate-200 p-5 mb-6">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="text-base font-semibold">Status</h2>
+    {{ task_status_badge(task.status) }}
+  </div>
+  <div class="mb-4">{{ progress_bar(task.downloaded_count, task.target_count) }}</div>
+  <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
+    <div>
+      <dt class="text-xs text-slate-500">SKU / creative / segment</dt>
+      <dd class="mt-0.5">{{ task.sku_id }} / {{ task.creative_id }} / {{ task.segment_id }}</dd>
+    </div>
+    <div>
+      <dt class="text-xs text-slate-500">Assigned workstation</dt>
+      <dd class="mt-0.5">
+        {% if task.assigned_workstation_id %}
+          <a href="/workstations/{{ task.assigned_workstation_id }}" class="text-blue-600 hover:underline">{{ task.assigned_workstation_id }}</a>
+        {% else %}
+          <span class="text-slate-500">—</span>
+        {% endif %}
+      </dd>
+    </div>
+    <div>
+      <dt class="text-xs text-slate-500">Rounds / retries</dt>
+      <dd class="mt-0.5 tabular-nums">{{ task.generation_round_count }} rounds · {{ task.retry_count }}/{{ task.max_retry_count }} retries</dd>
+    </div>
+    <div>
+      <dt class="text-xs text-slate-500">Created at</dt>
+      <dd class="mt-0.5 text-xs text-slate-700">{{ task.created_at }}</dd>
+    </div>
+    {% if task.depends_on_task_id %}
+    <div class="sm:col-span-2">
+      <dt class="text-xs text-slate-500">Depends on</dt>
+      <dd class="mt-0.5">
+        <a href="/tasks/{{ task.depends_on_task_id }}" class="text-blue-600 hover:underline font-mono text-xs">
+          {{ task.depends_on_task_id }}
+        </a>
+      </dd>
+    </div>
+    {% endif %}
+    {% if task.error_type %}
+    <div class="sm:col-span-2">
+      <dt class="text-xs text-slate-500">Last error</dt>
+      <dd class="mt-0.5 px-3 py-2 bg-red-50 text-red-800 text-xs rounded border border-red-200">
+        <span class="font-medium">[{{ task.error_type }}]</span>
+        {{ task.error_message or '' }}
+      </dd>
+    </div>
+    {% endif %}
+  </dl>
+</section>
+
+<section class="bg-white rounded-lg border border-slate-200 p-5 mb-6">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="text-base font-semibold">Generated videos</h2>
+    {% if results %}
+      <form action="/api/tasks/{{ task.task_id }}/open-folder" method="post" class="inline">
+        <button type="submit"
+                class="text-xs text-blue-600 hover:underline"
+                onclick="event.preventDefault(); fetch(this.form.action, {method:'POST'})">
+          open folder
+        </button>
+      </form>
+    {% endif %}
+  </div>
+  {% if results %}
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      {% for r in results %}
+        <div class="border border-slate-200 rounded overflow-hidden">
+          <video controls preload="metadata" class="w-full bg-slate-900"
+                 src="/files/{{ r.rel_path }}"></video>
+          <div class="px-2 py-1.5 text-xs text-slate-600 flex items-center justify-between">
+            <span class="font-mono">round {{ r.round }} · seq {{ r.seq }}</span>
+            <a href="/files/{{ r.rel_path }}" download class="text-blue-600 hover:underline">download</a>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="text-sm text-slate-500">No videos yet — they'll show up here as the worker downloads them.</p>
+  {% endif %}
+</section>
+
+<section class="bg-white rounded-lg border border-slate-200 p-5 mb-6">
+  <h2 class="text-base font-semibold mb-3">Prompt</h2>
+  <pre class="whitespace-pre-wrap text-sm font-mono bg-slate-50 p-3 rounded border border-slate-200">{{ task.video_prompt }}</pre>
+</section>
+
+<section class="bg-white rounded-lg border border-slate-200 p-5 mb-6">
+  <h2 class="text-base font-semibold mb-3">Source assets</h2>
+  {% if assets %}
+    <ul class="space-y-2 text-sm">
+      {% for order, path, kind in assets %}
+        <li class="flex items-center gap-3">
+          <span class="text-xs text-slate-400 tabular-nums w-6">{{ order }}.</span>
+          <span class="text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700">{{ kind }}</span>
+          <span class="font-mono text-xs text-slate-600 break-all">{{ path }}</span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="text-sm text-slate-500">No assets attached.</p>
+  {% endif %}
+</section>
