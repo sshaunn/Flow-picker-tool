@@ -22,6 +22,57 @@
   </div>
 </div>
 
+{% if health %}
+<section class="bg-white rounded-lg border border-slate-200 p-5 mb-6">
+  <h2 class="text-base font-semibold mb-3">运行健康</h2>
+  <dl class="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-3 text-sm">
+    <div>
+      <dt class="text-xs text-slate-500">今日成功</dt>
+      <dd class="mt-0.5 tabular-nums text-green-700 font-medium">{{ health.today_success_count }}</dd>
+    </div>
+    <div>
+      <dt class="text-xs text-slate-500">今日失败</dt>
+      <dd class="mt-0.5 tabular-nums text-red-700 font-medium">{{ health.today_failure_count }}</dd>
+    </div>
+    <div>
+      <dt class="text-xs text-slate-500">连续失败</dt>
+      <dd class="mt-0.5 tabular-nums">{{ health.consecutive_failure_count }}</dd>
+    </div>
+    <div>
+      <dt class="text-xs text-slate-500">风控 strike 次数</dt>
+      <dd class="mt-0.5 tabular-nums">
+        {{ health.ban_probe_count }}
+        {% if health.ban_probe_count > 0 %}
+          <span class="text-xs text-amber-700 ml-1">/ 5 后转人工处理</span>
+        {% endif %}
+      </dd>
+    </div>
+    <div class="sm:col-span-2">
+      <dt class="text-xs text-slate-500">冷却原因</dt>
+      <dd class="mt-0.5 text-xs">
+        {% if health.cooldown_reason %}
+          <span class="text-amber-700 font-mono">{{ health.cooldown_reason }}</span>
+        {% else %}
+          <span class="text-slate-500">—</span>
+        {% endif %}
+      </dd>
+    </div>
+    <div class="sm:col-span-2">
+      <dt class="text-xs text-slate-500">冷却结束于</dt>
+      <dd class="mt-0.5 text-xs text-slate-700">{{ health.cooldown_until or '—' }}</dd>
+    </div>
+    <div class="sm:col-span-2">
+      <dt class="text-xs text-slate-500">最近成功</dt>
+      <dd class="mt-0.5 text-xs text-slate-700">{{ health.last_success_at or '—' }}</dd>
+    </div>
+    <div class="sm:col-span-2">
+      <dt class="text-xs text-slate-500">最近失败</dt>
+      <dd class="mt-0.5 text-xs text-slate-700">{{ health.last_failure_at or '—' }}</dd>
+    </div>
+  </dl>
+</section>
+{% endif %}
+
 <section class="bg-white rounded-lg border border-slate-200 p-5 mb-6">
   <h2 class="text-base font-semibold mb-3">登录 &amp; Project</h2>
   <div hx-get="/workstations/{{ ws.id }}/login/partial"

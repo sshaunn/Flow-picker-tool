@@ -98,6 +98,32 @@ def test_workstation_detail_404_for_missing(app_config) -> None:
         assert client.get("/workstations/NOPE").status_code == 404
 
 
+def test_workstation_detail_shows_health_section(app_config) -> None:
+    """运行健康 panel surfaces strikes / cooldown / today counters."""
+    with _client(app_config) as client:
+        client.post("/workstations/new", data={
+            "id": "WS_HEALTH", "account_label": "h",
+            "daily_task_limit": "5",
+        }, follow_redirects=False)
+        from app.db.connection import connect
+        conn = connect(app_config.db_path)
+        try:
+            conn.execute(
+                "UPDATE workstations SET ban_probe_count = 3, "
+                "cooldown_reason = 'unusual_activity_strike_3', "
+                "today_failure_count = 7 WHERE id = 'WS_HEALTH'"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        resp = client.get("/workstations/WS_HEALTH")
+    assert resp.status_code == 200
+    assert "运行健康" in resp.text
+    assert "unusual_activity_strike_3" in resp.text
+    # Today counter showing up.
+    assert ">7<" in resp.text or ">7\n" in resp.text or "今日失败" in resp.text
+
+
 def test_workstation_edit_form_prefills(app_config) -> None:
     with _client(app_config) as client:
         client.post("/workstations/new", data={

@@ -266,6 +266,46 @@ def test_schema_migration_adds_new_columns_to_existing_db(tmp_path: Path) -> Non
         assert required in cols, f"missing migrated column: {required}"
 
 
+def test_get_workstation_health_returns_runtime_state(db_path: Path) -> None:
+    """Health returns the scheduler-owned fields, distinct from config."""
+    from app.workstations.repository import get_workstation_health
+
+    with connect(db_path) as conn:
+        create_workstation(conn, _make_ws())
+        # Simulate a worker leaving the WS in cooldown after 2 strikes.
+        conn.execute(
+            """
+            UPDATE workstations SET
+                today_success_count = 3,
+                today_failure_count = 5,
+                consecutive_failure_count = 2,
+                ban_probe_count = 2,
+                cooldown_until = '2099-01-01 00:00:00',
+                cooldown_reason = 'unusual_activity_strike_2',
+                last_success_at = '2026-05-02 12:00:00',
+                last_failure_at = '2026-05-02 12:30:00'
+            WHERE id = 'WS_A'
+            """
+        )
+        conn.commit()
+        health = get_workstation_health(conn, "WS_A")
+    assert health is not None
+    assert health.today_success_count == 3
+    assert health.today_failure_count == 5
+    assert health.consecutive_failure_count == 2
+    assert health.ban_probe_count == 2
+    assert health.cooldown_until == "2099-01-01 00:00:00"
+    assert health.cooldown_reason == "unusual_activity_strike_2"
+    assert health.last_success_at == "2026-05-02 12:00:00"
+    assert health.last_failure_at == "2026-05-02 12:30:00"
+
+
+def test_get_workstation_health_returns_none_for_missing(db_path: Path) -> None:
+    from app.workstations.repository import get_workstation_health
+    with connect(db_path) as conn:
+        assert get_workstation_health(conn, "WS_NOPE") is None
+
+
 def test_sync_workstations_uses_repository(tmp_path: Path) -> None:
     """The legacy yaml-bootstrap entrypoint now delegates to repository CRUD."""
     from app.db.schema import init_schema

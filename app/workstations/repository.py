@@ -26,8 +26,9 @@ from __future__ import annotations
 import logging
 import shutil
 import sqlite3
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from app import paths as app_paths
 from app.config.loader import FlowModeSpec, WorkstationConfig
@@ -35,6 +36,51 @@ from app.db.connection import transaction
 
 
 _log = logging.getLogger("flow_harvester.workstations")
+
+
+@dataclass
+class WorkstationHealth:
+    """Scheduler-owned runtime fields for a workstation. Read-only from the
+    Web UI's perspective — the customer sees them on the detail page so
+    they can tell at a glance how stressed each Google account is."""
+    today_success_count: int
+    today_failure_count: int
+    consecutive_failure_count: int
+    ban_probe_count: int
+    cooldown_until: Optional[str]
+    cooldown_reason: Optional[str]
+    last_success_at: Optional[str]
+    last_failure_at: Optional[str]
+
+
+def get_workstation_health(
+    conn: sqlite3.Connection, ws_id: str,
+) -> Optional[WorkstationHealth]:
+    """Return the scheduler runtime stats for a workstation, or None if
+    the WS doesn't exist. Distinct from ``get_workstation`` which returns
+    the user-editable config."""
+    row = conn.execute(
+        """
+        SELECT today_success_count, today_failure_count,
+               consecutive_failure_count, ban_probe_count,
+               cooldown_until, cooldown_reason,
+               last_success_at, last_failure_at
+          FROM workstations WHERE id = ?
+        """,
+        (ws_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    return WorkstationHealth(
+        today_success_count=row["today_success_count"],
+        today_failure_count=row["today_failure_count"],
+        consecutive_failure_count=row["consecutive_failure_count"],
+        ban_probe_count=row["ban_probe_count"] or 0,
+        cooldown_until=row["cooldown_until"],
+        cooldown_reason=row["cooldown_reason"],
+        last_success_at=row["last_success_at"],
+        last_failure_at=row["last_failure_at"],
+    )
 
 
 # Columns that describe user-editable workstation *config* (as opposed to

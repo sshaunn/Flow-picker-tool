@@ -41,6 +41,7 @@ from app.workstations.repository import (
     WorkstationNotFoundError,
     create_workstation,
     get_workstation,
+    get_workstation_health,
     list_workstations,
     update_workstation_config,
 )
@@ -118,11 +119,15 @@ def dashboard(
     conn: sqlite3.Connection = Depends(get_db_conn),
     daemon: SchedulerDaemon = Depends(get_daemon),
 ) -> HTMLResponse:
+    ws_with_health = [
+        {"ws": ws, "health": get_workstation_health(conn, ws.id)}
+        for ws in list_workstations(conn)
+    ]
     return templates.TemplateResponse(
         request, "dashboard.html",
         {
             "active_page": "dashboard",
-            "workstations": list_workstations(conn),
+            "workstations": ws_with_health,
             "tasks": list_tasks(conn, limit=10),
             "daemon": _scheduler_dict(daemon),
         },
@@ -220,11 +225,13 @@ def workstation_detail(
         }
         for r in rows
     ]
+    health = get_workstation_health(conn, ws_id)
     return templates.TemplateResponse(
         request, "workstation_detail.html",
         {
             "active_page": "workstations",
             "ws": ws,
+            "health": health,
             "recent_tasks": recent_tasks,
         },
     )

@@ -70,11 +70,22 @@
   </div>
   {% if workstations %}
     <ul class="divide-y divide-slate-100">
-      {% for ws in workstations %}
+      {% for entry in workstations %}
+        {% set ws = entry.ws %}
+        {% set health = entry.health %}
         <li class="py-2.5 flex items-center justify-between">
           <a href="/workstations/{{ ws.id }}" class="flex-1 hover:underline">
             <div class="text-sm font-medium">{{ ws.id }}</div>
             <div class="text-xs text-slate-500">{{ ws.account_label }}</div>
+            {% if health %}
+              {% if ws.status == 'cooldown' and health.cooldown_until %}
+                <div class="text-xs text-amber-700 mt-0.5">
+                  冷却到 {{ health.cooldown_until }}{% if health.ban_probe_count %} · strike {{ health.ban_probe_count }}/5{% endif %}
+                </div>
+              {% elif health.ban_probe_count and health.ban_probe_count > 0 %}
+                <div class="text-xs text-amber-700 mt-0.5">strike {{ health.ban_probe_count }}/5</div>
+              {% endif %}
+            {% endif %}
           </a>
           {{ ws_status_badge(ws.status) }}
         </li>

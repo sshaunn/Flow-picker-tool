@@ -23,7 +23,7 @@ from pathlib import Path as _PathlibPath
 
 from app.db.connection import connect
 from app.tasks.repository import get_task, get_task_assets, list_tasks
-from app.workstations.repository import list_workstations
+from app.workstations.repository import get_workstation_health, list_workstations
 
 
 router = APIRouter(tags=["ws"], include_in_schema=False)
@@ -60,13 +60,19 @@ def _render_dashboard(app) -> str:
     conn = connect(cfg.db_path, check_same_thread=False)
     try:
         ws_list = list_workstations(conn)
+        # Pull health stats per WS so the dashboard sidebar can flag
+        # strike count / cooldown reason without a per-row JS fetch.
+        ws_with_health = [
+            {"ws": ws, "health": get_workstation_health(conn, ws.id)}
+            for ws in ws_list
+        ]
         tasks = list_tasks(conn, limit=10)
     finally:
         conn.close()
     template = _templates.get_template("_dashboard_grid.html")
     return template.render(
         daemon=daemon_dict,
-        workstations=ws_list,
+        workstations=ws_with_health,
         tasks=tasks,
     )
 
