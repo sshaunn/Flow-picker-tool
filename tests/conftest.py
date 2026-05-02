@@ -41,6 +41,12 @@ def app_config(tmp_path: Path, db_path: Path, output_root: Path) -> AppConfig:
             max_retry_count=2,
             page_action_timeout_sec=5,
             generation_wait_timeout_sec=5,
+            # Disable stagger + inter-round pause so multi-runner tests
+            # don't sleep their way past the test timeout. Production runs
+            # set this to ~60s to space out per-account Veo requests; the
+            # mock runner doesn't hit a live IP so spacing is irrelevant.
+            inter_workstation_launch_stagger_sec=0,
+            inter_round_pause_sec=0,
         ),
         cooldown=CooldownSettings(
             consecutive_failure_threshold=3,

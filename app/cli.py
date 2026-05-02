@@ -22,10 +22,17 @@ from app.config import ConfigError, load_config
 
 def _load_or_die(settings: str, workstations: str):
     try:
-        return load_config(settings, workstations)
+        cfg, ws = load_config(settings, workstations)
     except ConfigError as exc:
         click.echo(f"[config error] {exc}", err=True)
         sys.exit(2)
+    # Make sure the resolved app-data dirs exist before any subcommand
+    # writes to them. Covers both dev (./output, ./logs in repo) and the
+    # customer install (%LOCALAPPDATA%\FlowHarvester\... on first run).
+    Path(cfg.output_root).mkdir(parents=True, exist_ok=True)
+    Path(cfg.log_root).mkdir(parents=True, exist_ok=True)
+    Path(cfg.db_path).parent.mkdir(parents=True, exist_ok=True)
+    return cfg, ws
 
 
 @click.group()

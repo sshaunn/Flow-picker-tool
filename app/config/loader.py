@@ -13,6 +13,8 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
+from app import paths
+
 
 class ConfigError(ValueError):
     """Raised when configuration files are missing fields or contain invalid values."""
@@ -82,9 +84,13 @@ class AppConfig(BaseModel):
     cooldown: CooldownSettings
     flow: FlowSettings
     recovery: RecoverySettings = RecoverySettings()
-    output_root: str = "./output"
-    db_path: str = "./flow_harvester.sqlite"
-    log_root: str = "./logs"
+    # Path defaults are platform-aware (see ``app.paths``). settings.yaml
+    # may pin explicit values to override (the dev repo does this so test
+    # output stays in-tree); customer installs leave these unset so the
+    # app writes under %LOCALAPPDATA% / ~/Library/Application Support.
+    output_root: str = Field(default_factory=lambda: str(paths.output_root()))
+    db_path: str = Field(default_factory=lambda: str(paths.db_path()))
+    log_root: str = Field(default_factory=lambda: str(paths.logs_dir()))
 
 
 class FlowModeSpec(BaseModel):
