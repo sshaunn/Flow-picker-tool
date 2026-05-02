@@ -23,6 +23,15 @@
 </div>
 
 <section class="bg-white rounded-lg border border-slate-200 p-5 mb-6">
+  <h2 class="text-base font-semibold mb-3">Login &amp; project</h2>
+  <div hx-get="/workstations/{{ ws.id }}/login/partial"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+    <p class="text-sm text-slate-400">Loading…</p>
+  </div>
+</section>
+
+<section class="bg-white rounded-lg border border-slate-200 p-5 mb-6">
   <h2 class="text-base font-semibold mb-3">Configuration</h2>
   <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
     <div>

@@ -7,6 +7,14 @@
     {% if ws %}Edit workstation: {{ ws.id }}{% else %}Add workstation{% endif %}
   </h1>
 
+  {% if not ws %}
+  <div class="mb-4 px-4 py-3 bg-blue-50 text-blue-900 text-sm rounded border border-blue-200">
+    After creating the workstation you'll click <strong>Login &amp; detect project</strong>
+    on its detail page. Chrome will open, you sign in to Google and pick a Flow
+    project, and the URL is captured automatically — no copy-paste needed.
+  </div>
+  {% endif %}
+
   <form action="{{ form_action }}" method="post" class="bg-white rounded-lg border border-slate-200 p-6 space-y-4">
     <div>
       <label class="block text-sm font-medium text-slate-700 mb-1">Workstation ID</label>
@@ -23,95 +31,21 @@
       <input type="text" name="account_label" value="{{ ws.account_label if ws else '' }}" required
              class="w-full rounded border border-slate-300 px-3 py-2 text-sm"
              placeholder="account_a">
-      <p class="mt-1 text-xs text-slate-500">Display name for this Google account (free-form).</p>
-    </div>
-
-    <div class="grid grid-cols-2 gap-4">
-      <div>
-        <label class="block text-sm font-medium text-slate-700 mb-1">Daily task limit</label>
-        <input type="number" name="daily_task_limit" value="{{ ws.daily_task_limit if ws else 20 }}"
-               min="1" required
-               class="w-full rounded border border-slate-300 px-3 py-2 text-sm">
-      </div>
-      <div>
-        <label class="block text-sm font-medium text-slate-700 mb-1">Profile path</label>
-        <input type="text" name="browser_profile_path"
-               value="{{ ws.browser_profile_path if ws else '' }}"
-               class="w-full rounded border border-slate-300 px-3 py-2 text-sm font-mono text-xs"
-               placeholder="(auto: AppData / Library)">
-        <p class="mt-1 text-xs text-slate-500">Leave blank to use the platform default.</p>
-      </div>
+      <p class="mt-1 text-xs text-slate-500">A display name for this Google account (free-form).</p>
     </div>
 
     <div>
-      <label class="block text-sm font-medium text-slate-700 mb-1">Flow project URL</label>
-      <input type="url" name="flow_project_url" value="{{ ws.flow_project_url or '' if ws else '' }}"
-             class="w-full rounded border border-slate-300 px-3 py-2 text-sm font-mono text-xs"
-             placeholder="https://labs.google/fx/tools/flow/project/...">
-      <p class="mt-1 text-xs text-slate-500">Paste after the operator logs in once and creates the project.</p>
+      <label class="block text-sm font-medium text-slate-700 mb-1">Daily task limit</label>
+      <input type="number" name="daily_task_limit" value="{{ ws.daily_task_limit if ws else 20 }}"
+             min="1" required
+             class="w-full rounded border border-slate-300 px-3 py-2 text-sm">
+      <p class="mt-1 text-xs text-slate-500">Maximum tasks this workstation can run per day.</p>
     </div>
-
-    <fieldset class="border border-slate-200 rounded p-3">
-      <legend class="text-sm font-medium px-2">Flow mode preset</legend>
-      <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-2">
-        <div>
-          <label class="block text-xs text-slate-600 mb-0.5">Tab</label>
-          <select name="mode_tab" class="w-full rounded border border-slate-300 px-2 py-1.5 text-sm">
-            <option value="">—</option>
-            {% set cur = ws.flow_mode.tab if ws and ws.flow_mode else '' %}
-            <option value="video" {% if cur == 'video' %}selected{% endif %}>video</option>
-            <option value="image" {% if cur == 'image' %}selected{% endif %}>image</option>
-          </select>
-        </div>
-        <div>
-          <label class="block text-xs text-slate-600 mb-0.5">Subtab</label>
-          <select name="mode_subtab" class="w-full rounded border border-slate-300 px-2 py-1.5 text-sm">
-            <option value="">—</option>
-            {% set cur = ws.flow_mode.subtab if ws and ws.flow_mode else '' %}
-            <option value="ingredients" {% if cur == 'ingredients' %}selected{% endif %}>ingredients</option>
-            <option value="frames" {% if cur == 'frames' %}selected{% endif %}>frames</option>
-          </select>
-        </div>
-        <div>
-          <label class="block text-xs text-slate-600 mb-0.5">Aspect</label>
-          <select name="mode_aspect" class="w-full rounded border border-slate-300 px-2 py-1.5 text-sm">
-            <option value="">—</option>
-            {% set cur = ws.flow_mode.aspect if ws and ws.flow_mode else '' %}
-            <option value="9:16" {% if cur == '9:16' %}selected{% endif %}>9:16</option>
-            <option value="16:9" {% if cur == '16:9' %}selected{% endif %}>16:9</option>
-            <option value="1:1" {% if cur == '1:1' %}selected{% endif %}>1:1</option>
-          </select>
-        </div>
-        <div>
-          <label class="block text-xs text-slate-600 mb-0.5">Output count</label>
-          <input type="number" name="mode_output_count" min="1" max="4"
-                 value="{{ ws.flow_mode.output_count if ws and ws.flow_mode and ws.flow_mode.output_count }}"
-                 class="w-full rounded border border-slate-300 px-2 py-1.5 text-sm">
-        </div>
-        <div>
-          <label class="block text-xs text-slate-600 mb-0.5">Duration (sec)</label>
-          <select name="mode_duration_sec" class="w-full rounded border border-slate-300 px-2 py-1.5 text-sm">
-            <option value="">—</option>
-            {% set cur = ws.flow_mode.duration_sec if ws and ws.flow_mode and ws.flow_mode.duration_sec %}
-            <option value="4" {% if cur == 4 %}selected{% endif %}>4</option>
-            <option value="6" {% if cur == 6 %}selected{% endif %}>6</option>
-            <option value="8" {% if cur == 8 %}selected{% endif %}>8</option>
-          </select>
-        </div>
-        <div>
-          <label class="block text-xs text-slate-600 mb-0.5">Model</label>
-          <input type="text" name="mode_model"
-                 value="{{ ws.flow_mode.model or '' if ws and ws.flow_mode else '' }}"
-                 placeholder="Veo 3.1 - Fast"
-                 class="w-full rounded border border-slate-300 px-2 py-1.5 text-sm">
-        </div>
-      </div>
-    </fieldset>
 
     <div class="flex justify-end gap-2 pt-2">
       <a href="/workstations" class="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900">Cancel</a>
       <button type="submit" class="px-4 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">
-        {% if ws %}Save changes{% else %}Add workstation{% endif %}
+        {% if ws %}Save changes{% else %}Continue to login{% endif %}
       </button>
     </div>
   </form>

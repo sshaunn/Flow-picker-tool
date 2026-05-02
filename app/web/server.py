@@ -23,11 +23,13 @@ from app.config.loader import AppConfig
 from app.db.connection import connect
 from app.db.schema import init_schema
 from app.scheduler.daemon import SchedulerDaemon
+from app.web.routes import login as login_routes
 from app.web.routes import pages as page_routes
 from app.web.routes import scheduler as scheduler_routes
 from app.web.routes import tasks as tasks_routes
 from app.web.routes import workstations as ws_routes
 from app.web.routes import ws as ws_routes_module
+from app.workstations.login_session import LoginSessionRegistry
 from app.workstations.repository import list_workstations
 
 
@@ -68,6 +70,9 @@ def _make_lifespan(*, auto_start_daemon: bool):
         finally:
             log.info("shutting down scheduler daemon")
             daemon.stop(timeout=30.0)
+            # Make sure any in-flight login Chrome windows close with us.
+            registry: LoginSessionRegistry = app.state.login_sessions
+            registry.cancel_all(timeout=5.0)
 
     return lifespan
 
@@ -97,12 +102,14 @@ def create_app(
     app.state.push_interval_sec = push_interval_sec
     app.state.use_mock = use_mock
     app.state.mock_round_plans_per_ws = mock_round_plans_per_ws
+    app.state.login_sessions = LoginSessionRegistry()
 
     app.include_router(ws_routes.router)
     app.include_router(tasks_routes.router)
     app.include_router(scheduler_routes.router)
     app.include_router(page_routes.router)
     app.include_router(ws_routes_module.router)
+    app.include_router(login_routes.router)
 
     static_dir = Path(__file__).parent / "static"
     if static_dir.exists():

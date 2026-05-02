@@ -1,0 +1,79 @@
+{# Login session status block. Polled by HTMX every second from the
+   workstation detail page. Auto-stops polling once the session reaches
+   a terminal state (captured / error / cancelled). #}
+
+{% set s = snap.state.value %}
+{% set polling = s in ('opening', 'waiting_for_login', 'waiting_for_project') %}
+
+<div id="login-block"
+     {% if polling %}
+       hx-get="/workstations/{{ ws_id }}/login/partial"
+       hx-trigger="every 1s"
+       hx-swap="outerHTML"
+     {% endif %}
+>
+  {% if s == 'not_started' %}
+    <p class="text-sm text-slate-600 mb-3">
+      Click below to open Chrome, sign in to Google, then open or create a Flow project.
+      The window will close automatically once we detect the project URL.
+    </p>
+    <button hx-post="/api/workstations/{{ ws_id }}/login"
+            hx-target="#login-block" hx-swap="outerHTML"
+            class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">
+      Login &amp; detect project
+    </button>
+
+  {% elif s == 'opening' %}
+    <div class="flex items-center gap-2 text-sm text-slate-700">
+      <span class="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse"></span>
+      Opening Chrome…
+    </div>
+
+  {% elif s == 'waiting_for_login' %}
+    <div class="flex items-center justify-between gap-3">
+      <div class="flex items-center gap-2 text-sm text-slate-700">
+        <span class="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse"></span>
+        Sign in to Google in the Chrome window that just opened.
+      </div>
+      <button hx-delete="/api/workstations/{{ ws_id }}/login"
+              hx-target="#login-block" hx-swap="outerHTML"
+              class="text-xs text-red-600 hover:underline">cancel</button>
+    </div>
+
+  {% elif s == 'waiting_for_project' %}
+    <div class="flex items-center justify-between gap-3">
+      <div class="flex items-center gap-2 text-sm text-slate-700">
+        <span class="w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse"></span>
+        Open or create a Flow project — the URL will be captured automatically.
+      </div>
+      <button hx-delete="/api/workstations/{{ ws_id }}/login"
+              hx-target="#login-block" hx-swap="outerHTML"
+              class="text-xs text-red-600 hover:underline">cancel</button>
+    </div>
+
+  {% elif s == 'captured' %}
+    <div class="flex items-center justify-between gap-3">
+      <div class="text-sm text-green-700 font-medium">Project URL captured.</div>
+      <button hx-post="/api/workstations/{{ ws_id }}/login"
+              hx-target="#login-block" hx-swap="outerHTML"
+              class="text-xs text-blue-600 hover:underline">re-login</button>
+    </div>
+    <div class="mt-1 text-xs text-slate-500 break-all font-mono">{{ snap.captured_url }}</div>
+
+  {% elif s == 'cancelled' %}
+    <div class="flex items-center justify-between gap-3">
+      <div class="text-sm text-slate-600">Login was cancelled.</div>
+      <button hx-post="/api/workstations/{{ ws_id }}/login"
+              hx-target="#login-block" hx-swap="outerHTML"
+              class="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">try again</button>
+    </div>
+
+  {% elif s == 'error' %}
+    <div class="px-3 py-2 bg-red-50 text-red-800 text-xs rounded border border-red-200">
+      {{ snap.error or 'Login failed.' }}
+    </div>
+    <button hx-post="/api/workstations/{{ ws_id }}/login"
+            hx-target="#login-block" hx-swap="outerHTML"
+            class="mt-2 px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">try again</button>
+  {% endif %}
+</div>

@@ -273,13 +273,20 @@ def workstation_update(
     # flow_project_url: empty string clears the field, missing means "no change".
     if flow_project_url is not None:
         fields["flow_project_url"] = _empty_or_str(flow_project_url)
-    fm = _build_flow_mode(
-        tab=mode_tab, subtab=mode_subtab, aspect=mode_aspect,
-        output_count=_empty_or_int(mode_output_count),
-        duration_sec=_empty_or_int(mode_duration_sec),
-        model=mode_model,
-    )
-    fields["flow_mode"] = fm
+    # flow_mode: only touch the preset when the operator explicitly
+    # submitted at least one mode_* field. The simplified edit form
+    # doesn't carry these so they stay None and the existing preset
+    # (set by the login flow) survives.
+    if any(v is not None and v != "" for v in (
+        mode_tab, mode_subtab, mode_aspect,
+        mode_output_count, mode_duration_sec, mode_model,
+    )):
+        fields["flow_mode"] = _build_flow_mode(
+            tab=mode_tab, subtab=mode_subtab, aspect=mode_aspect,
+            output_count=_empty_or_int(mode_output_count),
+            duration_sec=_empty_or_int(mode_duration_sec),
+            model=mode_model,
+        )
     try:
         update_workstation_config(conn, ws_id, **fields)
     except WorkstationNotFoundError as exc:

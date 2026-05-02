@@ -68,7 +68,9 @@ def test_workstations_new_form_renders(app_config) -> None:
         resp = client.get("/workstations/new")
     assert resp.status_code == 200
     assert 'name="account_label"' in resp.text
-    assert 'name="flow_project_url"' in resp.text
+    # project URL + mode preset are captured by the login flow, not typed
+    # into this form.
+    assert 'name="flow_project_url"' not in resp.text
 
 
 def test_workstation_form_post_creates_and_redirects(app_config) -> None:
@@ -77,10 +79,7 @@ def test_workstation_form_post_creates_and_redirects(app_config) -> None:
             "/workstations/new",
             data={
                 "id": "WS_FORM", "account_label": "acct",
-                "daily_task_limit": "10", "browser_profile_path": "/tmp/p",
-                "flow_project_url": "https://x/y",
-                "mode_tab": "video", "mode_aspect": "9:16",
-                "mode_duration_sec": "8",
+                "daily_task_limit": "10",
             },
             follow_redirects=False,
         )
@@ -90,7 +89,6 @@ def test_workstation_form_post_creates_and_redirects(app_config) -> None:
         detail = client.get("/workstations/WS_FORM")
     assert detail.status_code == 200
     assert "WS_FORM" in detail.text
-    assert "https://x/y" in detail.text
 
 
 def test_workstation_detail_404_for_missing(app_config) -> None:
