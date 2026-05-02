@@ -27,6 +27,7 @@ from app.web.routes import pages as page_routes
 from app.web.routes import scheduler as scheduler_routes
 from app.web.routes import tasks as tasks_routes
 from app.web.routes import workstations as ws_routes
+from app.web.routes import ws as ws_routes_module
 from app.workstations.repository import list_workstations
 
 
@@ -76,6 +77,7 @@ def create_app(
     config: AppConfig,
     auto_start_daemon: bool = True,
     idle_poll_sec: float = 5.0,
+    push_interval_sec: float = 2.0,
     use_mock: bool = False,
     mock_round_plans_per_ws: Optional[dict] = None,
 ) -> FastAPI:
@@ -92,6 +94,7 @@ def create_app(
     )
     app.state.config = config
     app.state.idle_poll_sec = idle_poll_sec
+    app.state.push_interval_sec = push_interval_sec
     app.state.use_mock = use_mock
     app.state.mock_round_plans_per_ws = mock_round_plans_per_ws
 
@@ -99,6 +102,7 @@ def create_app(
     app.include_router(tasks_routes.router)
     app.include_router(scheduler_routes.router)
     app.include_router(page_routes.router)
+    app.include_router(ws_routes_module.router)
 
     static_dir = Path(__file__).parent / "static"
     if static_dir.exists():

@@ -1,128 +1,35 @@
 {% extends "base.html" %}
-{% from "_macros.html" import ws_status_badge, task_status_badge, progress_bar %}
 {% block title %}Dashboard · Flow Harvester{% endblock %}
 
 {% block content %}
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-  {# Scheduler status panel — full width on top. #}
-  <section class="lg:col-span-3 bg-white rounded-lg border border-slate-200 p-5">
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="text-base font-semibold">Scheduler</h2>
-      <div class="flex gap-2">
-        {% if daemon.running %}
-          <button hx-post="/api/scheduler/stop" hx-swap="none"
-                  class="px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700">
-            Stop
-          </button>
-        {% else %}
-          <button hx-post="/api/scheduler/start" hx-swap="none"
-                  class="px-3 py-1.5 text-sm bg-green-600 text-white rounded hover:bg-green-700">
-            Start
-          </button>
-        {% endif %}
-      </div>
-    </div>
-
-    <div class="grid grid-cols-2 sm:grid-cols-6 gap-4 text-sm">
-      <div>
-        <div class="text-xs text-slate-500">Status</div>
-        <div class="mt-1">
-          {% if daemon.running %}
-            <span class="inline-flex items-center gap-1.5 text-green-700 font-medium">
-              <span class="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span>
-              running
-            </span>
-          {% else %}
-            <span class="text-slate-500">idle</span>
-          {% endif %}
-        </div>
-      </div>
-      <div>
-        <div class="text-xs text-slate-500">Rounds</div>
-        <div class="mt-1 font-medium tabular-nums">{{ daemon.rounds_completed }}</div>
-      </div>
-      <div>
-        <div class="text-xs text-slate-500">Executed</div>
-        <div class="mt-1 font-medium tabular-nums">{{ daemon.cumulative.executed }}</div>
-      </div>
-      <div>
-        <div class="text-xs text-slate-500">Success</div>
-        <div class="mt-1 font-medium tabular-nums text-green-700">{{ daemon.cumulative.success }}</div>
-      </div>
-      <div>
-        <div class="text-xs text-slate-500">Failed</div>
-        <div class="mt-1 font-medium tabular-nums text-red-700">{{ daemon.cumulative.failed + daemon.cumulative.download_failed }}</div>
-      </div>
-      <div>
-        <div class="text-xs text-slate-500">Last round</div>
-        <div class="mt-1 text-slate-600">{{ daemon.last_round_at or '—' }}</div>
-      </div>
-    </div>
-
-    {% if daemon.last_error %}
-      <div class="mt-3 px-3 py-2 bg-red-50 text-red-800 text-xs rounded border border-red-200">
-        Last error: {{ daemon.last_error }}
-      </div>
-    {% endif %}
-  </section>
-
-  {# Workstations panel #}
-  <section class="lg:col-span-1 bg-white rounded-lg border border-slate-200 p-5">
-    <div class="flex items-center justify-between mb-3">
-      <h2 class="text-base font-semibold">Workstations</h2>
-      <a href="/workstations" class="text-xs text-blue-600 hover:underline">manage →</a>
-    </div>
-    {% if workstations %}
-      <ul class="divide-y divide-slate-100">
-        {% for ws in workstations %}
-          <li class="py-2.5 flex items-center justify-between">
-            <a href="/workstations/{{ ws.id }}" class="flex-1 hover:underline">
-              <div class="text-sm font-medium">{{ ws.id }}</div>
-              <div class="text-xs text-slate-500">{{ ws.account_label }}</div>
-            </a>
-            {{ ws_status_badge(ws.status) }}
-          </li>
-        {% endfor %}
-      </ul>
-    {% else %}
-      <p class="text-sm text-slate-500">
-        No workstations yet.
-        <a href="/workstations" class="text-blue-600 hover:underline">Add one →</a>
-      </p>
-    {% endif %}
-  </section>
-
-  {# Recent tasks panel #}
-  <section class="lg:col-span-2 bg-white rounded-lg border border-slate-200 p-5">
-    <div class="flex items-center justify-between mb-3">
-      <h2 class="text-base font-semibold">Recent tasks</h2>
-      <a href="/tasks/new" class="text-xs text-blue-600 hover:underline">+ new task</a>
-    </div>
-    {% if tasks %}
-      <ul class="divide-y divide-slate-100">
-        {% for task in tasks %}
-          <li class="py-2.5">
-            <div class="flex items-center justify-between gap-3">
-              <a href="/tasks/{{ task.task_id }}" class="text-sm font-mono text-slate-700 hover:underline truncate">
-                {{ task.task_id }}
-              </a>
-              {{ task_status_badge(task.status) }}
-            </div>
-            <div class="mt-1 text-xs text-slate-500 truncate">
-              {{ task.creative_id }}/{{ task.segment_id }} · {{ task.video_prompt[:50] }}{% if task.video_prompt|length > 50 %}…{% endif %}
-            </div>
-            <div class="mt-1.5">
-              {{ progress_bar(task.downloaded_count, task.target_count) }}
-            </div>
-          </li>
-        {% endfor %}
-      </ul>
-    {% else %}
-      <p class="text-sm text-slate-500">
-        No tasks yet.
-        <a href="/tasks/new" class="text-blue-600 hover:underline">Create the first one →</a>
-      </p>
-    {% endif %}
-  </section>
+<div id="dashboard-grid" class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+  {% include "_dashboard_grid.html" %}
 </div>
+
+<script>
+(() => {
+  const grid = document.getElementById('dashboard-grid');
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const url = `${proto}//${location.host}/ws/dashboard`;
+
+  let ws = null;
+  let backoff = 1000;
+
+  const connect = () => {
+    ws = new WebSocket(url);
+    ws.onopen = () => { backoff = 1000; };
+    ws.onmessage = (ev) => {
+      grid.innerHTML = ev.data;
+      if (window.htmx) htmx.process(grid);
+    };
+    ws.onclose = () => {
+      // Reconnect with exponential backoff capped at 10s.
+      setTimeout(connect, backoff);
+      backoff = Math.min(backoff * 2, 10_000);
+    };
+    ws.onerror = () => ws.close();
+  };
+  connect();
+})();
+</script>
 {% endblock %}
