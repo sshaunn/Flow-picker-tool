@@ -7,7 +7,7 @@ dependencies = [
     "pyyaml>=6.0",
     "pydantic>=2.5",
     "click>=8.1",
-    "playwright>=1.40",
+    "patchright>=1.59",
 ]
 
 [project.optional-dependencies]

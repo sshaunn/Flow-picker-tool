@@ -65,13 +65,13 @@ def _flow_port_factory(
     if use_mock:
         plans = mock_round_plans if mock_round_plans is not None else [MockRoundPlan.success(4)]
         return MockFlowPort(round_plans=plans, initial_state=mock_initial_state)
-    # Lazy import so the package is usable without playwright installed
+    # Lazy import so the package is usable without patchright installed
     # for ``--mock`` runs / tests.
     try:
         from app.worker.flow_playwright import PlaywrightFlowPort  # type: ignore
     except ImportError as exc:
         raise RuntimeError(
-            "Playwright FlowPort not available. Install playwright or use --mock."
+            "FlowPort not available. Install patchright or use --mock."
         ) from exc
     return PlaywrightFlowPort(
         entry_url=config.flow.entry_url,

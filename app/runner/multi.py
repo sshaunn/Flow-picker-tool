@@ -77,7 +77,7 @@ def _build_flow_port(
         from app.worker.flow_playwright import PlaywrightFlowPort  # type: ignore
     except ImportError as exc:
         raise RuntimeError(
-            "Playwright FlowPort not available. Install playwright or use --mock."
+            "FlowPort not available. Install patchright or use --mock."
         ) from exc
     return PlaywrightFlowPort(
         entry_url=config.flow.entry_url,

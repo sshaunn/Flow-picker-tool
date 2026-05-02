@@ -134,7 +134,7 @@ class PlaywrightFlowPort(FlowPort):
         self._candidate_stability_window_sec = candidate_stability_window_sec
 
         # Lazily filled in open()
-        self._pw = None  # playwright sync runtime
+        self._pw = None  # patchright sync runtime
         self._context = None  # BrowserContext (persistent)
         self._page = None  # Page
 
@@ -160,7 +160,7 @@ class PlaywrightFlowPort(FlowPort):
             from patchright.sync_api import sync_playwright
         except ImportError as exc:  # pragma: no cover - dependency missing
             raise FlowPortError(
-                "playwright is not installed; install it or run with --mock"
+                "patchright is not installed; install it or run with --mock"
             ) from exc
 
         if not self.profile_path.exists():

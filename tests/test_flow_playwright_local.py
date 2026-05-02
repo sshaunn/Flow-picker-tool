@@ -25,12 +25,12 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("playwright.sync_api")
+pytest.importorskip("patchright.sync_api")
 
 
 def _chromium_available() -> bool:
     try:
-        from playwright.sync_api import sync_playwright
+        from patchright.sync_api import sync_playwright
 
         with sync_playwright() as pw:
             try:
@@ -45,7 +45,7 @@ def _chromium_available() -> bool:
 
 pytestmark = pytest.mark.skipif(
     not _chromium_available(),
-    reason="Chromium not available (run `playwright install chromium`)",
+    reason="Chromium not available (run `patchright install chromium`)",
 )
 
 

@@ -86,7 +86,7 @@ def probe_workstation(
             workstation_id=workstation_id,
             status=LoginStatus.PROBE_FAILED,
             final_url="",
-            detail="playwright not installed",
+            detail="patchright not installed",
         )
 
     try:
