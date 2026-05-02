@@ -5,17 +5,17 @@
 
 <section class="bg-white rounded-lg border border-slate-200 p-5 mb-6">
   <div class="flex items-center justify-between mb-3">
-    <h2 class="text-base font-semibold">Status</h2>
+    <h2 class="text-base font-semibold">状态</h2>
     {{ task_status_badge(task.status) }}
   </div>
   <div class="mb-4">{{ progress_bar(task.downloaded_count, task.target_count) }}</div>
   <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
     <div>
-      <dt class="text-xs text-slate-500">SKU / creative / segment</dt>
+      <dt class="text-xs text-slate-500">SKU / 创意 / 片段</dt>
       <dd class="mt-0.5">{{ task.sku_id }} / {{ task.creative_id }} / {{ task.segment_id }}</dd>
     </div>
     <div>
-      <dt class="text-xs text-slate-500">Assigned workstation</dt>
+      <dt class="text-xs text-slate-500">分配账号</dt>
       <dd class="mt-0.5">
         {% if task.assigned_workstation_id %}
           <a href="/workstations/{{ task.assigned_workstation_id }}" class="text-blue-600 hover:underline">{{ task.assigned_workstation_id }}</a>
@@ -25,16 +25,16 @@
       </dd>
     </div>
     <div>
-      <dt class="text-xs text-slate-500">Rounds / retries</dt>
-      <dd class="mt-0.5 tabular-nums">{{ task.generation_round_count }} rounds · {{ task.retry_count }}/{{ task.max_retry_count }} retries</dd>
+      <dt class="text-xs text-slate-500">轮数 / 重试</dt>
+      <dd class="mt-0.5 tabular-nums">{{ task.generation_round_count }} 轮 · {{ task.retry_count }}/{{ task.max_retry_count }} 次重试</dd>
     </div>
     <div>
-      <dt class="text-xs text-slate-500">Created at</dt>
+      <dt class="text-xs text-slate-500">创建时间</dt>
       <dd class="mt-0.5 text-xs text-slate-700">{{ task.created_at }}</dd>
     </div>
     {% if task.depends_on_task_id %}
     <div class="sm:col-span-2">
-      <dt class="text-xs text-slate-500">Depends on</dt>
+      <dt class="text-xs text-slate-500">依赖任务</dt>
       <dd class="mt-0.5">
         <a href="/tasks/{{ task.depends_on_task_id }}" class="text-blue-600 hover:underline font-mono text-xs">
           {{ task.depends_on_task_id }}
@@ -44,22 +44,22 @@
     {% endif %}
     {% if task.flow_mode %}
     <div class="sm:col-span-2">
-      <dt class="text-xs text-slate-500">Generation overrides</dt>
+      <dt class="text-xs text-slate-500">本任务覆盖参数</dt>
       <dd class="mt-0.5 text-xs text-slate-700">
         {%- set parts = [] -%}
-        {%- if task.flow_mode.model %}{% set _ = parts.append('model=' ~ task.flow_mode.model) %}{% endif -%}
-        {%- if task.flow_mode.output_count %}{% set _ = parts.append('output=' ~ task.flow_mode.output_count) %}{% endif -%}
-        {%- if task.flow_mode.duration_sec %}{% set _ = parts.append('duration=' ~ task.flow_mode.duration_sec ~ 's') %}{% endif -%}
-        {%- if task.flow_mode.aspect %}{% set _ = parts.append('aspect=' ~ task.flow_mode.aspect) %}{% endif -%}
-        {%- if task.flow_mode.tab %}{% set _ = parts.append('tab=' ~ task.flow_mode.tab) %}{% endif -%}
-        {%- if task.flow_mode.subtab %}{% set _ = parts.append('subtab=' ~ task.flow_mode.subtab) %}{% endif -%}
-        {{ parts | join(' · ') if parts else 'none' }}
+        {%- if task.flow_mode.model %}{% set _ = parts.append('模型=' ~ task.flow_mode.model) %}{% endif -%}
+        {%- if task.flow_mode.output_count %}{% set _ = parts.append('输出数=' ~ task.flow_mode.output_count) %}{% endif -%}
+        {%- if task.flow_mode.duration_sec %}{% set _ = parts.append('时长=' ~ task.flow_mode.duration_sec ~ '秒') %}{% endif -%}
+        {%- if task.flow_mode.aspect %}{% set _ = parts.append('比例=' ~ task.flow_mode.aspect) %}{% endif -%}
+        {%- if task.flow_mode.tab %}{% set _ = parts.append('主类型=' ~ task.flow_mode.tab) %}{% endif -%}
+        {%- if task.flow_mode.subtab %}{% set _ = parts.append('子类型=' ~ task.flow_mode.subtab) %}{% endif -%}
+        {{ parts | join(' · ') if parts else '无' }}
       </dd>
     </div>
     {% endif %}
     {% if task.error_type %}
     <div class="sm:col-span-2">
-      <dt class="text-xs text-slate-500">Last error</dt>
+      <dt class="text-xs text-slate-500">最近错误</dt>
       <dd class="mt-0.5 px-3 py-2 bg-red-50 text-red-800 text-xs rounded border border-red-200">
         <span class="font-medium">[{{ task.error_type }}]</span>
         {{ task.error_message or '' }}

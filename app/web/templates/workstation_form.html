@@ -1,51 +1,51 @@
 {% extends "base.html" %}
-{% block title %}{% if ws %}Edit {{ ws.id }}{% else %}New workstation{% endif %} · Flow Harvester{% endblock %}
+{% block title %}{% if ws %}编辑 {{ ws.id }}{% else %}添加账号{% endif %} · Flow Harvester{% endblock %}
 
 {% block content %}
 <div class="max-w-2xl mx-auto">
   <h1 class="text-xl font-semibold mb-4">
-    {% if ws %}Edit workstation: {{ ws.id }}{% else %}Add workstation{% endif %}
+    {% if ws %}编辑账号：{{ ws.id }}{% else %}添加账号{% endif %}
   </h1>
 
   {% if not ws %}
   <div class="mb-4 px-4 py-3 bg-blue-50 text-blue-900 text-sm rounded border border-blue-200">
-    After creating the workstation you'll click <strong>Login &amp; detect project</strong>
-    on its detail page. Chrome will open, you sign in to Google and pick a Flow
-    project, and the URL is captured automatically — no copy-paste needed.
+    保存后会进入账号详情页，点击 <strong>登录并识别 Project</strong> 按钮，
+    Chrome 会自动弹出，您在弹窗里登录 Google 并打开一个 Flow project，系统
+    会自动识别并保存 Project 链接 — 全程无需手动复制。
   </div>
   {% endif %}
 
   <form action="{{ form_action }}" method="post" class="bg-white rounded-lg border border-slate-200 p-6 space-y-4">
     <div>
-      <label class="block text-sm font-medium text-slate-700 mb-1">Workstation ID</label>
+      <label class="block text-sm font-medium text-slate-700 mb-1">账号编号</label>
       <input type="text" name="id" value="{{ ws.id if ws else '' }}"
              {% if ws %}readonly{% endif %} required
              pattern="[A-Za-z0-9_]+"
              class="w-full rounded border border-slate-300 px-3 py-2 text-sm {% if ws %}bg-slate-50 text-slate-500{% endif %}"
              placeholder="WS_A">
-      <p class="mt-1 text-xs text-slate-500">Used as folder name for the Chrome profile. Letters / digits / underscore only.</p>
+      <p class="mt-1 text-xs text-slate-500">用作 Chrome profile 文件夹名称，仅支持字母 / 数字 / 下划线。</p>
     </div>
 
     <div>
-      <label class="block text-sm font-medium text-slate-700 mb-1">Account label</label>
+      <label class="block text-sm font-medium text-slate-700 mb-1">账号备注</label>
       <input type="text" name="account_label" value="{{ ws.account_label if ws else '' }}" required
              class="w-full rounded border border-slate-300 px-3 py-2 text-sm"
              placeholder="account_a">
-      <p class="mt-1 text-xs text-slate-500">A display name for this Google account (free-form).</p>
+      <p class="mt-1 text-xs text-slate-500">这个 Google 账号的备注名（任意填写）。</p>
     </div>
 
     <div>
-      <label class="block text-sm font-medium text-slate-700 mb-1">Daily task limit</label>
+      <label class="block text-sm font-medium text-slate-700 mb-1">每日任务上限</label>
       <input type="number" name="daily_task_limit" value="{{ ws.daily_task_limit if ws else 20 }}"
              min="1" required
              class="w-full rounded border border-slate-300 px-3 py-2 text-sm">
-      <p class="mt-1 text-xs text-slate-500">Maximum tasks this workstation can run per day.</p>
+      <p class="mt-1 text-xs text-slate-500">该账号每天最多可以跑的任务数。</p>
     </div>
 
     <div class="flex justify-end gap-2 pt-2">
-      <a href="/workstations" class="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900">Cancel</a>
+      <a href="/workstations" class="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900">取消</a>
       <button type="submit" class="px-4 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">
-        {% if ws %}Save changes{% else %}Continue to login{% endif %}
+        {% if ws %}保存修改{% else %}下一步：登录{% endif %}
       </button>
     </div>
   </form>

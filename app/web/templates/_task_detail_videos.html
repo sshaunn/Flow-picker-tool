@@ -3,12 +3,12 @@
    their playback state across polls. #}
 
 <div class="flex items-center justify-between mb-3">
-  <h2 class="text-base font-semibold">Generated videos ({{ results|length }})</h2>
+  <h2 class="text-base font-semibold">已生成视频（{{ results|length }}）</h2>
   {% if results %}
     <button type="button"
             onclick="fetch('/api/tasks/{{ task.task_id }}/open-folder', {method: 'POST'})"
             class="text-xs text-blue-600 hover:underline">
-      open folder
+      打开文件夹
     </button>
   {% endif %}
 </div>
@@ -19,12 +19,12 @@
         <video controls preload="metadata" class="w-full bg-slate-900"
                src="/files/{{ r.rel_path }}"></video>
         <div class="px-2 py-1.5 text-xs text-slate-600 flex items-center justify-between">
-          <span class="font-mono">round {{ r.round }} · seq {{ r.seq }}</span>
-          <a href="/files/{{ r.rel_path }}" download class="text-blue-600 hover:underline">download</a>
+          <span class="font-mono">第 {{ r.round }} 轮 · 第 {{ r.seq }} 个</span>
+          <a href="/files/{{ r.rel_path }}" download class="text-blue-600 hover:underline">下载</a>
         </div>
       </div>
     {% endfor %}
   </div>
 {% else %}
-  <p class="text-sm text-slate-500">No videos yet — they'll show up here as the worker downloads them.</p>
+  <p class="text-sm text-slate-500">还没有生成视频 — 跑出来后会自动出现在这里。</p>
 {% endif %}

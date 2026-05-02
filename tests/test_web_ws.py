@@ -31,9 +31,9 @@ def test_ws_dashboard_pushes_initial_fragment(app_config) -> None:
         with client.websocket_connect("/ws/dashboard") as ws:
             html = ws.receive_text()
     # The fragment carries the section headers from the partial.
-    assert "Scheduler" in html
-    assert "Workstations" in html
-    assert "Recent tasks" in html
+    assert "调度器" in html
+    assert "账号" in html
+    assert "近期任务" in html
 
 
 def test_ws_dashboard_reflects_db_state(app_config) -> None:
@@ -62,20 +62,20 @@ def test_ws_dashboard_pushes_repeatedly(app_config) -> None:
             third = ws.receive_text()
     assert first and second and third
     # Same payload across ticks when state hasn't changed — that's expected.
-    assert all("Scheduler" in fragment for fragment in (first, second, third))
+    assert all("调度器" in fragment for fragment in (first, second, third))
 
 
 def test_ws_dashboard_picks_up_scheduler_state_change(app_config) -> None:
     with _client(app_config) as client:
         with client.websocket_connect("/ws/dashboard") as ws:
             before = ws.receive_text()
-            assert "idle" in before  # daemon not running yet
+            assert "空闲" in before  # daemon not running yet
 
             client.post("/api/scheduler/start")
             # Skip past any in-flight buffered tick, then check the next push.
             for _ in range(5):
                 fragment = ws.receive_text()
-                if "running" in fragment:
+                if "运行中" in fragment:
                     break
             else:
                 pytest.fail("WebSocket never reflected the running daemon state")

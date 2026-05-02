@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}New task · Flow Harvester{% endblock %}
+{% block title %}新建任务 · Flow Harvester{% endblock %}
 
 {% block content %}
 <div class="max-w-2xl mx-auto">
-  <h1 class="text-xl font-semibold mb-4">New task</h1>
+  <h1 class="text-xl font-semibold mb-4">新建任务</h1>
 
   <form action="/tasks/new" method="post" enctype="multipart/form-data"
         class="bg-white rounded-lg border border-slate-200 p-6 space-y-4">
@@ -16,13 +16,13 @@
                placeholder="sku_001">
       </div>
       <div>
-        <label class="block text-sm font-medium text-slate-700 mb-1">Creative</label>
+        <label class="block text-sm font-medium text-slate-700 mb-1">创意编号</label>
         <input type="text" name="creative_id" required
                class="w-full rounded border border-slate-300 px-3 py-2 text-sm"
                placeholder="creative_001">
       </div>
       <div>
-        <label class="block text-sm font-medium text-slate-700 mb-1">Segment</label>
+        <label class="block text-sm font-medium text-slate-700 mb-1">片段</label>
         <input type="text" name="segment_id" required
                class="w-full rounded border border-slate-300 px-3 py-2 text-sm"
                placeholder="A">
@@ -30,62 +30,62 @@
     </div>
 
     <div>
-      <label class="block text-sm font-medium text-slate-700 mb-1">Prompt</label>
+      <label class="block text-sm font-medium text-slate-700 mb-1">提示词</label>
       <textarea name="video_prompt" rows="4" required
                 class="w-full rounded border border-slate-300 px-3 py-2 text-sm font-mono"
-                placeholder="A serene beach at sunset, gentle waves..."></textarea>
+                placeholder="在此输入视频提示词（中文 / 英文 / 任意 Flow 支持的语言均可）"></textarea>
     </div>
 
     <div class="grid grid-cols-2 gap-4">
       <div>
-        <label class="block text-sm font-medium text-slate-700 mb-1">Target count</label>
+        <label class="block text-sm font-medium text-slate-700 mb-1">目标数量</label>
         <input type="number" name="target_count" value="4" min="1" max="50" required
                class="w-full rounded border border-slate-300 px-3 py-2 text-sm">
-        <p class="mt-1 text-xs text-slate-500">How many videos to harvest for this task.</p>
+        <p class="mt-1 text-xs text-slate-500">该任务需要采集多少个视频。</p>
       </div>
       <div>
-        <label class="block text-sm font-medium text-slate-700 mb-1">Asset kind</label>
+        <label class="block text-sm font-medium text-slate-700 mb-1">素材类型</label>
         <select name="asset_kind"
                 class="w-full rounded border border-slate-300 px-3 py-2 text-sm">
-          <option value="reference" selected>reference (Ingredients)</option>
-          <option value="first_frame">first_frame</option>
-          <option value="last_frame">last_frame</option>
-          <option value="previous_segment_frame">previous_segment_frame</option>
-          <option value="other">other</option>
+          <option value="reference" selected>参考图（Ingredients 模式）</option>
+          <option value="first_frame">首帧</option>
+          <option value="last_frame">末帧</option>
+          <option value="previous_segment_frame">上一片段尾帧</option>
+          <option value="other">其他</option>
         </select>
       </div>
     </div>
 
     <div>
-      <label class="block text-sm font-medium text-slate-700 mb-1">Source images</label>
+      <label class="block text-sm font-medium text-slate-700 mb-1">参考图</label>
       <input type="file" name="assets" multiple accept="image/*" required
              class="w-full text-sm">
       <p class="mt-1 text-xs text-slate-500">
-        Pick one or more images. They'll be copied into the managed assets folder.
+        可一次选多张。系统会复制到管理目录，原图不会被删除。
       </p>
     </div>
 
     <fieldset class="border border-slate-200 rounded p-3">
-      <legend class="text-sm font-medium px-2">Generation parameters</legend>
+      <legend class="text-sm font-medium px-2">生成参数</legend>
       <p class="text-xs text-slate-500 mb-2">
-        Leave any field blank to fall back to the assigned workstation's preset.
+        留空表示使用账号上的默认设置；任意一项填写即可单独覆盖。
       </p>
       <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <div>
-          <label class="block text-xs text-slate-600 mb-0.5">Model</label>
+          <label class="block text-xs text-slate-600 mb-0.5">模型</label>
           <select name="mode_model" class="w-full rounded border border-slate-300 px-2 py-1.5 text-sm">
-            <option value="">(WS default)</option>
+            <option value="">（账号默认）</option>
             <option value="Veo 3.1 - Fast">Veo 3.1 - Fast</option>
             <option value="Veo 3.1 - Quality">Veo 3.1 - Quality</option>
             <option value="Veo 3 - Fast">Veo 3 - Fast</option>
             <option value="Veo 3 - Quality">Veo 3 - Quality</option>
-            <option value="Nano Banana 2">Nano Banana 2 (image)</option>
+            <option value="Nano Banana 2">Nano Banana 2（图片）</option>
           </select>
         </div>
         <div>
-          <label class="block text-xs text-slate-600 mb-0.5">Output count</label>
+          <label class="block text-xs text-slate-600 mb-0.5">每轮输出数</label>
           <select name="mode_output_count" class="w-full rounded border border-slate-300 px-2 py-1.5 text-sm">
-            <option value="">(WS default)</option>
+            <option value="">（账号默认）</option>
             <option value="1">1</option>
             <option value="2">2</option>
             <option value="3">3</option>
@@ -93,46 +93,46 @@
           </select>
         </div>
         <div>
-          <label class="block text-xs text-slate-600 mb-0.5">Duration (sec)</label>
+          <label class="block text-xs text-slate-600 mb-0.5">视频时长</label>
           <select name="mode_duration_sec" class="w-full rounded border border-slate-300 px-2 py-1.5 text-sm">
-            <option value="">(WS default)</option>
-            <option value="4">4</option>
-            <option value="6">6</option>
-            <option value="8">8</option>
+            <option value="">（账号默认）</option>
+            <option value="4">4 秒</option>
+            <option value="6">6 秒</option>
+            <option value="8">8 秒</option>
           </select>
         </div>
         <div>
-          <label class="block text-xs text-slate-600 mb-0.5">Aspect ratio</label>
+          <label class="block text-xs text-slate-600 mb-0.5">画面比例</label>
           <select name="mode_aspect" class="w-full rounded border border-slate-300 px-2 py-1.5 text-sm">
-            <option value="">(WS default)</option>
-            <option value="9:16">9:16 (vertical)</option>
-            <option value="16:9">16:9 (landscape)</option>
-            <option value="1:1">1:1 (square)</option>
+            <option value="">（账号默认）</option>
+            <option value="9:16">9:16（竖屏）</option>
+            <option value="16:9">16:9（横屏）</option>
+            <option value="1:1">1:1（正方形）</option>
           </select>
         </div>
         <div>
-          <label class="block text-xs text-slate-600 mb-0.5">Tab</label>
+          <label class="block text-xs text-slate-600 mb-0.5">主类型</label>
           <select name="mode_tab" class="w-full rounded border border-slate-300 px-2 py-1.5 text-sm">
-            <option value="">(WS default)</option>
-            <option value="video">video</option>
-            <option value="image">image</option>
+            <option value="">（账号默认）</option>
+            <option value="video">视频</option>
+            <option value="image">图片</option>
           </select>
         </div>
         <div>
-          <label class="block text-xs text-slate-600 mb-0.5">Subtab</label>
+          <label class="block text-xs text-slate-600 mb-0.5">子类型</label>
           <select name="mode_subtab" class="w-full rounded border border-slate-300 px-2 py-1.5 text-sm">
-            <option value="">(WS default)</option>
-            <option value="ingredients">ingredients</option>
-            <option value="frames">frames</option>
+            <option value="">（账号默认）</option>
+            <option value="ingredients">Ingredients（参考图）</option>
+            <option value="frames">Frames（首末帧）</option>
           </select>
         </div>
       </div>
     </fieldset>
 
     <div class="flex justify-end gap-2 pt-2">
-      <a href="/tasks" class="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900">Cancel</a>
+      <a href="/tasks" class="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900">取消</a>
       <button type="submit" class="px-4 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">
-        Create task
+        创建任务
       </button>
     </div>
   </form>

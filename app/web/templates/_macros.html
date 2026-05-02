@@ -1,16 +1,17 @@
-{# Reusable bits — status badges and progress bars. #}
+{# Reusable bits — Chinese-labeled status badges + progress bars.
+   English status enum stays in the title attribute for tooltip / dev support. #}
 
 {% macro ws_status_badge(status) -%}
   {%- if status == 'healthy' -%}
-    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">healthy</span>
+    <span title="healthy" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">正常</span>
   {%- elif status == 'busy' -%}
-    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">busy</span>
+    <span title="busy" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">忙碌</span>
   {%- elif status == 'cooldown' -%}
-    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">cooldown</span>
+    <span title="cooldown" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">冷却中</span>
   {%- elif status == 'manual_check' -%}
-    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">manual_check</span>
+    <span title="manual_check" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">需人工处理</span>
   {%- elif status == 'disabled' -%}
-    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-200 text-slate-700">disabled</span>
+    <span title="disabled" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-200 text-slate-700">已停用</span>
   {%- else -%}
     <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700">{{ status }}</span>
   {%- endif -%}
@@ -18,17 +19,19 @@
 
 {% macro task_status_badge(status) -%}
   {%- if status == 'success' -%}
-    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">success</span>
+    <span title="success" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">已完成</span>
   {%- elif status == 'pending' -%}
-    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700">pending</span>
+    <span title="pending" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700">等待中</span>
   {%- elif status == 'running' -%}
-    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">running</span>
+    <span title="running" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">进行中</span>
   {%- elif status == 'retry_waiting' -%}
-    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">retry_waiting</span>
-  {%- elif status in ('failed', 'download_failed') -%}
-    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">{{ status }}</span>
+    <span title="retry_waiting" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">等待重试</span>
+  {%- elif status == 'failed' -%}
+    <span title="failed" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">失败</span>
+  {%- elif status == 'download_failed' -%}
+    <span title="download_failed" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">下载失败</span>
   {%- elif status == 'manual_review' -%}
-    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">manual_review</span>
+    <span title="manual_review" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">需人工复核</span>
   {%- else -%}
     <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700">{{ status }}</span>
   {%- endif -%}

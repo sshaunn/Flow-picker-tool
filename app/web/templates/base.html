@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -18,10 +18,10 @@
       </a>
       <nav class="flex gap-4 text-sm">
         {% set page = active_page or '' %}
-        <a href="/" class="{% if page == 'dashboard' %}text-blue-600 font-medium{% else %}text-slate-600 hover:text-slate-900{% endif %}">Dashboard</a>
-        <a href="/workstations" class="{% if page == 'workstations' %}text-blue-600 font-medium{% else %}text-slate-600 hover:text-slate-900{% endif %}">Workstations</a>
-        <a href="/tasks" class="{% if page == 'tasks' %}text-blue-600 font-medium{% else %}text-slate-600 hover:text-slate-900{% endif %}">Tasks</a>
-        <a href="/tasks/new" class="{% if page == 'new_task' %}text-blue-600 font-medium{% else %}text-slate-600 hover:text-slate-900{% endif %}">+ New Task</a>
+        <a href="/" class="{% if page == 'dashboard' %}text-blue-600 font-medium{% else %}text-slate-600 hover:text-slate-900{% endif %}">总览</a>
+        <a href="/workstations" class="{% if page == 'workstations' %}text-blue-600 font-medium{% else %}text-slate-600 hover:text-slate-900{% endif %}">账号</a>
+        <a href="/tasks" class="{% if page == 'tasks' %}text-blue-600 font-medium{% else %}text-slate-600 hover:text-slate-900{% endif %}">任务</a>
+        <a href="/tasks/new" class="{% if page == 'new_task' %}text-blue-600 font-medium{% else %}text-slate-600 hover:text-slate-900{% endif %}">+ 新建任务</a>
       </nav>
     </div>
   </header>
@@ -31,7 +31,7 @@
   </main>
 
   <footer class="max-w-6xl mx-auto px-4 py-6 text-xs text-slate-400">
-    Flow Harvester &middot; localhost only
+    Flow Harvester &middot; 本地运行
   </footer>
 </body>
 </html>

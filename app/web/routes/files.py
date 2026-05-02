@@ -184,8 +184,8 @@ def task_log_partial(
     if record is None:
         raise HTTPException(status_code=404)
     if not record.assigned_workstation_id:
-        return PlainTextResponse(content="(not yet assigned)")
+        return PlainTextResponse(content="（任务还未分配账号）")
     body = _read_worker_log_tail(
         Path(cfg.log_root), record.assigned_workstation_id, task_id,
     )
-    return PlainTextResponse(content=body or "(no log lines yet)")
+    return PlainTextResponse(content=body or "（暂无日志，任务可能刚开始或还未分配）")

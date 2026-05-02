@@ -281,7 +281,7 @@ def test_login_partial_renders_initial_button(app_config) -> None:
         })
         resp = client.get("/workstations/WS_PARTIAL/login/partial")
     assert resp.status_code == 200
-    assert "Login" in resp.text
+    assert "登录" in resp.text
     assert "/api/workstations/WS_PARTIAL/login" in resp.text
 
 

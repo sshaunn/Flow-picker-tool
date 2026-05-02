@@ -5,71 +5,71 @@
 {% block content %}
 <div class="flex items-center justify-between mb-4">
   <div>
-    <a href="/workstations" class="text-xs text-slate-500 hover:underline">← Workstations</a>
+    <a href="/workstations" class="text-xs text-slate-500 hover:underline">← 账号列表</a>
     <h1 class="text-xl font-semibold mt-1">{{ ws.id }} <span class="ml-2">{{ ws_status_badge(ws.status) }}</span></h1>
   </div>
   <div class="flex gap-2">
     <a href="/workstations/{{ ws.id }}/edit"
        class="px-3 py-1.5 text-sm bg-white border border-slate-300 text-slate-700 rounded hover:bg-slate-50">
-      Edit
+      编辑
     </a>
     <button hx-delete="/api/workstations/{{ ws.id }}"
-            hx-confirm="Delete {{ ws.id }}?"
+            hx-confirm="确定删除 {{ ws.id }} 吗？"
             hx-on::after-request="if (event.detail.successful) window.location.href='/workstations'"
             class="px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700">
-      Delete
+      删除
     </button>
   </div>
 </div>
 
 <section class="bg-white rounded-lg border border-slate-200 p-5 mb-6">
-  <h2 class="text-base font-semibold mb-3">Login &amp; project</h2>
+  <h2 class="text-base font-semibold mb-3">登录 &amp; Project</h2>
   <div hx-get="/workstations/{{ ws.id }}/login/partial"
        hx-trigger="load"
        hx-swap="innerHTML">
-    <p class="text-sm text-slate-400">Loading…</p>
+    <p class="text-sm text-slate-400">加载中…</p>
   </div>
 </section>
 
 <section class="bg-white rounded-lg border border-slate-200 p-5 mb-6">
-  <h2 class="text-base font-semibold mb-3">Configuration</h2>
+  <h2 class="text-base font-semibold mb-3">配置</h2>
   <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
     <div>
-      <dt class="text-xs text-slate-500">Account label</dt>
+      <dt class="text-xs text-slate-500">账号备注</dt>
       <dd class="mt-0.5">{{ ws.account_label }}</dd>
     </div>
     <div>
-      <dt class="text-xs text-slate-500">Daily task limit</dt>
+      <dt class="text-xs text-slate-500">每日任务上限</dt>
       <dd class="mt-0.5 tabular-nums">{{ ws.daily_task_limit }}</dd>
     </div>
     <div class="sm:col-span-2">
-      <dt class="text-xs text-slate-500">Profile path</dt>
+      <dt class="text-xs text-slate-500">Profile 路径</dt>
       <dd class="mt-0.5 font-mono text-xs break-all text-slate-700">{{ ws.browser_profile_path }}</dd>
     </div>
     <div class="sm:col-span-2">
-      <dt class="text-xs text-slate-500">Flow project URL</dt>
+      <dt class="text-xs text-slate-500">Flow Project 链接</dt>
       <dd class="mt-0.5 font-mono text-xs break-all">
         {% if ws.flow_project_url %}
           <a href="{{ ws.flow_project_url }}" target="_blank" class="text-blue-600 hover:underline">{{ ws.flow_project_url }}</a>
         {% else %}
-          <span class="italic text-slate-500">not set</span>
+          <span class="italic text-slate-500">未设置</span>
         {% endif %}
       </dd>
     </div>
     <div class="sm:col-span-2">
-      <dt class="text-xs text-slate-500">Flow mode preset</dt>
+      <dt class="text-xs text-slate-500">默认生成参数</dt>
       <dd class="mt-0.5">
         {% if ws.flow_mode %}
           <span class="text-xs text-slate-700">
             tab={{ ws.flow_mode.tab or '—' }}
             · subtab={{ ws.flow_mode.subtab or '—' }}
-            · aspect={{ ws.flow_mode.aspect or '—' }}
-            · output={{ ws.flow_mode.output_count or '—' }}
-            · duration={{ ws.flow_mode.duration_sec or '—' }}s
-            · model={{ ws.flow_mode.model or '—' }}
+            · 比例={{ ws.flow_mode.aspect or '—' }}
+            · 输出数={{ ws.flow_mode.output_count or '—' }}
+            · 时长={{ ws.flow_mode.duration_sec or '—' }}秒
+            · 模型={{ ws.flow_mode.model or '—' }}
           </span>
         {% else %}
-          <span class="italic text-slate-500">no preset (Flow defaults)</span>
+          <span class="italic text-slate-500">未设置（使用 Flow 默认值）</span>
         {% endif %}
       </dd>
     </div>
@@ -77,7 +77,7 @@
 </section>
 
 <section class="bg-white rounded-lg border border-slate-200 p-5">
-  <h2 class="text-base font-semibold mb-3">Recent tasks on this workstation</h2>
+  <h2 class="text-base font-semibold mb-3">该账号近期任务</h2>
   {% if recent_tasks %}
     <ul class="divide-y divide-slate-100">
       {% for task in recent_tasks %}
@@ -95,7 +95,7 @@
       {% endfor %}
     </ul>
   {% else %}
-    <p class="text-sm text-slate-500">No tasks have been assigned to this workstation yet.</p>
+    <p class="text-sm text-slate-500">该账号还没有分配过任务。</p>
   {% endif %}
 </section>
 {% endblock %}

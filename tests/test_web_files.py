@@ -119,7 +119,7 @@ def test_log_partial_for_unassigned_task(app_config) -> None:
         tid = client.post("/api/tasks", files=files, data=data).json()["task_id"]
         resp = client.get(f"/tasks/{tid}/log/partial")
     assert resp.status_code == 200
-    assert "not yet assigned" in resp.text
+    assert "还未分配" in resp.text
 
 
 def test_log_partial_filters_by_task_id(app_config, tmp_path: Path) -> None:
@@ -173,7 +173,7 @@ def test_task_detail_ws_pushes_status_fragment(app_config) -> None:
             html = ws.receive_text()
     # WS pushes only the status partial — videos live in a separately
     # polled section so previewing a clip isn't interrupted by every tick.
-    assert "Status" in html
+    assert "状态" in html
     assert "<video" not in html
 
 

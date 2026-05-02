@@ -33,7 +33,9 @@ def test_dashboard_renders_when_empty(app_config) -> None:
         resp = client.get("/")
     assert resp.status_code == 200
     assert "Flow Harvester" in resp.text
-    assert "No workstations yet" in resp.text or "Workstations" in resp.text
+    # Customer-facing copy is Chinese; check for one of the section
+    # headers that's always present.
+    assert "调度器" in resp.text
 
 
 def test_dashboard_shows_workstations_and_tasks(app_config) -> None:
@@ -60,7 +62,7 @@ def test_workstations_list_page_renders(app_config) -> None:
     with _client(app_config) as client:
         resp = client.get("/workstations")
     assert resp.status_code == 200
-    assert "+ Add workstation" in resp.text
+    assert "添加" in resp.text
 
 
 def test_workstations_new_form_renders(app_config) -> None:
@@ -131,7 +133,7 @@ def test_tasks_list_page_renders_when_empty(app_config) -> None:
     with _client(app_config) as client:
         resp = client.get("/tasks")
     assert resp.status_code == 200
-    assert "No tasks yet" in resp.text or "+ New task" in resp.text
+    assert "新建任务" in resp.text
 
 
 def test_tasks_new_form_renders(app_config) -> None:

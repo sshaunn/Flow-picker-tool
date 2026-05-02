@@ -4,17 +4,17 @@
 
 <section class="lg:col-span-3 bg-white rounded-lg border border-slate-200 p-5">
   <div class="flex items-center justify-between mb-4">
-    <h2 class="text-base font-semibold">Scheduler</h2>
+    <h2 class="text-base font-semibold">调度器</h2>
     <div class="flex gap-2">
       {% if daemon.running %}
         <button hx-post="/api/scheduler/stop" hx-swap="none"
                 class="px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700">
-          Stop
+          停止
         </button>
       {% else %}
         <button hx-post="/api/scheduler/start" hx-swap="none"
                 class="px-3 py-1.5 text-sm bg-green-600 text-white rounded hover:bg-green-700">
-          Start
+          启动
         </button>
       {% endif %}
     </div>
@@ -22,51 +22,51 @@
 
   <div class="grid grid-cols-2 sm:grid-cols-6 gap-4 text-sm">
     <div>
-      <div class="text-xs text-slate-500">Status</div>
+      <div class="text-xs text-slate-500">运行状态</div>
       <div class="mt-1">
         {% if daemon.running %}
           <span class="inline-flex items-center gap-1.5 text-green-700 font-medium">
             <span class="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span>
-            running
+            运行中
           </span>
         {% else %}
-          <span class="text-slate-500">idle</span>
+          <span class="text-slate-500">空闲</span>
         {% endif %}
       </div>
     </div>
     <div>
-      <div class="text-xs text-slate-500">Rounds</div>
+      <div class="text-xs text-slate-500">轮数</div>
       <div class="mt-1 font-medium tabular-nums">{{ daemon.rounds_completed }}</div>
     </div>
     <div>
-      <div class="text-xs text-slate-500">Executed</div>
+      <div class="text-xs text-slate-500">已执行</div>
       <div class="mt-1 font-medium tabular-nums">{{ daemon.cumulative.executed }}</div>
     </div>
     <div>
-      <div class="text-xs text-slate-500">Success</div>
+      <div class="text-xs text-slate-500">成功</div>
       <div class="mt-1 font-medium tabular-nums text-green-700">{{ daemon.cumulative.success }}</div>
     </div>
     <div>
-      <div class="text-xs text-slate-500">Failed</div>
+      <div class="text-xs text-slate-500">失败</div>
       <div class="mt-1 font-medium tabular-nums text-red-700">{{ daemon.cumulative.failed + daemon.cumulative.download_failed }}</div>
     </div>
     <div>
-      <div class="text-xs text-slate-500">Last round</div>
+      <div class="text-xs text-slate-500">最近一轮</div>
       <div class="mt-1 text-slate-600">{{ daemon.last_round_at or '—' }}</div>
     </div>
   </div>
 
   {% if daemon.last_error %}
     <div class="mt-3 px-3 py-2 bg-red-50 text-red-800 text-xs rounded border border-red-200">
-      Last error: {{ daemon.last_error }}
+      最近错误：{{ daemon.last_error }}
     </div>
   {% endif %}
 </section>
 
 <section class="lg:col-span-1 bg-white rounded-lg border border-slate-200 p-5">
   <div class="flex items-center justify-between mb-3">
-    <h2 class="text-base font-semibold">Workstations</h2>
-    <a href="/workstations" class="text-xs text-blue-600 hover:underline">manage →</a>
+    <h2 class="text-base font-semibold">账号</h2>
+    <a href="/workstations" class="text-xs text-blue-600 hover:underline">管理 →</a>
   </div>
   {% if workstations %}
     <ul class="divide-y divide-slate-100">
@@ -82,16 +82,16 @@
     </ul>
   {% else %}
     <p class="text-sm text-slate-500">
-      No workstations yet.
-      <a href="/workstations" class="text-blue-600 hover:underline">Add one →</a>
+      还没有添加账号。
+      <a href="/workstations" class="text-blue-600 hover:underline">立即添加 →</a>
     </p>
   {% endif %}
 </section>
 
 <section class="lg:col-span-2 bg-white rounded-lg border border-slate-200 p-5">
   <div class="flex items-center justify-between mb-3">
-    <h2 class="text-base font-semibold">Recent tasks</h2>
-    <a href="/tasks/new" class="text-xs text-blue-600 hover:underline">+ new task</a>
+    <h2 class="text-base font-semibold">近期任务</h2>
+    <a href="/tasks/new" class="text-xs text-blue-600 hover:underline">+ 新建任务</a>
   </div>
   {% if tasks %}
     <ul class="divide-y divide-slate-100">
@@ -114,8 +114,8 @@
     </ul>
   {% else %}
     <p class="text-sm text-slate-500">
-      No tasks yet.
-      <a href="/tasks/new" class="text-blue-600 hover:underline">Create the first one →</a>
+      还没有任务。
+      <a href="/tasks/new" class="text-blue-600 hover:underline">创建第一个任务 →</a>
     </p>
   {% endif %}
 </section>

@@ -4,14 +4,14 @@
 {% block content %}
 <div class="flex items-center justify-between mb-4">
   <div>
-    <a href="/tasks" class="text-xs text-slate-500 hover:underline">← Tasks</a>
+    <a href="/tasks" class="text-xs text-slate-500 hover:underline">← 任务列表</a>
     <h1 class="text-xl font-semibold mt-1 font-mono">{{ task.task_id }}</h1>
   </div>
   <button hx-delete="/api/tasks/{{ task.task_id }}"
-          hx-confirm="Delete task {{ task.task_id }}?"
+          hx-confirm="确定删除任务 {{ task.task_id }} 吗？"
           hx-on::after-request="if (event.detail.successful) window.location.href='/tasks'"
           class="px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700">
-    Delete
+    删除
   </button>
 </div>
 
@@ -28,12 +28,12 @@
 </section>
 
 <section class="bg-white rounded-lg border border-slate-200 p-5 mb-6">
-  <h2 class="text-base font-semibold mb-3">Prompt</h2>
+  <h2 class="text-base font-semibold mb-3">提示词</h2>
   <pre class="whitespace-pre-wrap text-sm font-mono bg-slate-50 p-3 rounded border border-slate-200">{{ task.video_prompt }}</pre>
 </section>
 
 <section class="bg-white rounded-lg border border-slate-200 p-5 mb-6">
-  <h2 class="text-base font-semibold mb-3">Source assets</h2>
+  <h2 class="text-base font-semibold mb-3">参考素材</h2>
   {% if assets %}
     <ul class="space-y-2 text-sm">
       {% for order, path, kind in assets %}
@@ -45,14 +45,14 @@
       {% endfor %}
     </ul>
   {% else %}
-    <p class="text-sm text-slate-500">No assets attached.</p>
+    <p class="text-sm text-slate-500">没有参考素材。</p>
   {% endif %}
 </section>
 
 <section class="bg-white rounded-lg border border-slate-200 p-5 mb-6">
   <div class="flex items-center justify-between mb-2">
-    <h2 class="text-base font-semibold">Live worker log</h2>
-    <span class="text-xs text-slate-400">filtered to this task; auto-refresh 2s</span>
+    <h2 class="text-base font-semibold">运行日志（实时）</h2>
+    <span class="text-xs text-slate-400">仅显示本任务相关 · 每 2 秒刷新</span>
   </div>
   <pre id="task-log"
        hx-get="/tasks/{{ task.task_id }}/log/partial"

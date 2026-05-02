@@ -1,22 +1,30 @@
 {% extends "base.html" %}
 {% from "_macros.html" import task_status_badge, progress_bar %}
-{% block title %}Tasks · Flow Harvester{% endblock %}
+{% block title %}任务 · Flow Harvester{% endblock %}
 
 {% block content %}
 <div class="flex items-center justify-between mb-4">
-  <h1 class="text-xl font-semibold">Tasks</h1>
+  <h1 class="text-xl font-semibold">任务</h1>
   <a href="/tasks/new" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">
-    + New task
+    + 新建任务
   </a>
 </div>
 
 <div class="mb-4 flex gap-2 text-sm">
   {% set f = current_status or '' %}
-  <a href="/tasks" class="px-3 py-1 rounded {% if not f %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-700 hover:bg-slate-50{% endif %}">All</a>
+  {% set status_labels = {
+       'pending': '等待中',
+       'running': '进行中',
+       'success': '已完成',
+       'retry_waiting': '等待重试',
+       'failed': '失败',
+       'manual_review': '需人工复核',
+  } %}
+  <a href="/tasks" class="px-3 py-1 rounded {% if not f %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-700 hover:bg-slate-50{% endif %}">全部</a>
   {% for s in ['pending', 'running', 'success', 'retry_waiting', 'failed', 'manual_review'] %}
     <a href="/tasks?status={{ s }}"
        class="px-3 py-1 rounded {% if f == s %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-700 hover:bg-slate-50{% endif %}">
-      {{ s }}
+      {{ status_labels[s] }}
     </a>
   {% endfor %}
 </div>
@@ -26,11 +34,11 @@
   <table class="w-full text-sm">
     <thead class="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
       <tr>
-        <th class="px-4 py-2 text-left">Task</th>
-        <th class="px-4 py-2 text-left">Status</th>
-        <th class="px-4 py-2 text-left w-48">Progress</th>
-        <th class="px-4 py-2 text-left">Workstation</th>
-        <th class="px-4 py-2 text-left">Prompt</th>
+        <th class="px-4 py-2 text-left">任务</th>
+        <th class="px-4 py-2 text-left">状态</th>
+        <th class="px-4 py-2 text-left w-48">进度</th>
+        <th class="px-4 py-2 text-left">分配账号</th>
+        <th class="px-4 py-2 text-left">提示词</th>
         <th class="px-4 py-2"></th>
       </tr>
     </thead>
@@ -49,10 +57,10 @@
         <td class="px-4 py-3 text-xs text-slate-600 max-w-xs truncate">{{ task.video_prompt }}</td>
         <td class="px-4 py-3 text-right">
           <button hx-delete="/api/tasks/{{ task.task_id }}"
-                  hx-confirm="Delete task {{ task.task_id }}?"
+                  hx-confirm="确定删除任务 {{ task.task_id }} 吗？"
                   hx-on::after-request="if (event.detail.successful) window.location.reload()"
                   class="text-red-600 text-xs hover:underline">
-            delete
+            删除
           </button>
         </td>
       </tr>
@@ -62,9 +70,9 @@
 </div>
 {% else %}
 <div class="bg-white rounded-lg border border-slate-200 p-8 text-center">
-  <p class="text-slate-500">{% if current_status %}No tasks with status "{{ current_status }}".{% else %}No tasks yet.{% endif %}</p>
+  <p class="text-slate-500">{% if current_status %}没有"{{ status_labels.get(current_status, current_status) }}"状态的任务。{% else %}还没有任务。{% endif %}</p>
   <a href="/tasks/new" class="inline-block mt-3 px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">
-    + Create a task
+    + 创建任务
   </a>
 </div>
 {% endif %}
