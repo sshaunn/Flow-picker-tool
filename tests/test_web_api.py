@@ -206,6 +206,58 @@ def test_task_list_filter_by_status(app_config) -> None:
     assert running == []
 
 
+def test_task_resume_clears_retry_and_returns_record(app_config) -> None:
+    files = [("assets", ("a.png", io.BytesIO(_png_bytes()), "image/png"))]
+    data = {"sku_id": "s", "creative_id": "rsm", "segment_id": "A",
+            "video_prompt": "p", "target_count": "5"}
+    with _make_client(app_config) as client:
+        tid = client.post("/api/tasks", files=files, data=data).json()["task_id"]
+        # Park the task at retry exhaustion.
+        from app.db.connection import connect
+        conn = connect(app_config.db_path)
+        try:
+            conn.execute(
+                "UPDATE tasks SET status='retry_waiting', retry_count=2, "
+                "max_retry_count=2, downloaded_count=3 WHERE task_id=?", (tid,),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        resp = client.post(f"/api/tasks/{tid}/resume")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "pending"
+    assert body["retry_count"] == 0
+    # Progress preserved.
+    assert body["downloaded_count"] == 3
+
+
+def test_task_resume_409_for_running_or_success(app_config) -> None:
+    files = [("assets", ("a.png", io.BytesIO(_png_bytes()), "image/png"))]
+    data = {"sku_id": "s", "creative_id": "rsm2", "segment_id": "A",
+            "video_prompt": "p", "target_count": "1"}
+    with _make_client(app_config) as client:
+        tid = client.post("/api/tasks", files=files, data=data).json()["task_id"]
+        from app.db.connection import connect
+        conn = connect(app_config.db_path)
+        try:
+            conn.execute(
+                "UPDATE tasks SET status='running' WHERE task_id=?", (tid,),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        resp = client.post(f"/api/tasks/{tid}/resume")
+    assert resp.status_code == 409
+
+
+def test_task_resume_404_for_unknown(app_config) -> None:
+    with _make_client(app_config) as client:
+        resp = client.post("/api/tasks/NOPE/resume")
+    assert resp.status_code == 404
+
+
 def test_task_delete(app_config) -> None:
     files = [("assets", ("img.png", io.BytesIO(_png_bytes()), "image/png"))]
     data = {"sku_id": "s", "creative_id": "c", "segment_id": "A",

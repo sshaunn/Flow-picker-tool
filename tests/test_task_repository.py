@@ -309,6 +309,71 @@ def test_delete_task_returns_false_when_missing(db_path: Path) -> None:
         assert delete_task(conn, "nope") is False
 
 
+def test_resume_task_clears_retry_keeps_progress(
+    db_path: Path, tmp_path: Path
+) -> None:
+    """Customer-facing 继续任务: clear retry counter + status, keep progress."""
+    from app.tasks.repository import resume_task
+
+    with connect(db_path) as conn:
+        new_id = create_task(conn, _draft(tmp_path))
+        # Simulate a worker that ran twice + persisted some downloads.
+        conn.execute(
+            "UPDATE tasks SET status='retry_waiting', retry_count=2, "
+            "max_retry_count=2, downloaded_count=15, generation_round_count=8, "
+            "error_type='unusual_activity', error_message='hit rate limit', "
+            "assigned_workstation_id='WS_A' WHERE task_id=?",
+            (new_id,),
+        )
+        conn.commit()
+
+        ok = resume_task(conn, new_id)
+        record = get_task(conn, new_id)
+
+    assert ok is True
+    assert record is not None
+    assert record.status == "pending"
+    assert record.retry_count == 0
+    assert record.error_type is None
+    assert record.error_message is None
+    # Progress is preserved so the next claim continues from where the
+    # earlier attempts left off.
+    assert record.downloaded_count == 15
+    assert record.generation_round_count == 8
+
+
+def test_resume_task_refuses_running(db_path: Path, tmp_path: Path) -> None:
+    """Don't race the worker — a running task can't be resumed."""
+    from app.tasks.repository import resume_task
+
+    with connect(db_path) as conn:
+        new_id = create_task(conn, _draft(tmp_path))
+        conn.execute(
+            "UPDATE tasks SET status = 'running' WHERE task_id = ?", (new_id,),
+        )
+        conn.commit()
+        assert resume_task(conn, new_id) is False
+
+
+def test_resume_task_refuses_success(db_path: Path, tmp_path: Path) -> None:
+    """Nothing to continue on a completed task."""
+    from app.tasks.repository import resume_task
+
+    with connect(db_path) as conn:
+        new_id = create_task(conn, _draft(tmp_path))
+        conn.execute(
+            "UPDATE tasks SET status = 'success' WHERE task_id = ?", (new_id,),
+        )
+        conn.commit()
+        assert resume_task(conn, new_id) is False
+
+
+def test_resume_task_returns_false_for_missing(db_path: Path) -> None:
+    from app.tasks.repository import resume_task
+    with connect(db_path) as conn:
+        assert resume_task(conn, "nope") is False
+
+
 def test_delete_task_cascades_task_assets(db_path: Path, tmp_path: Path) -> None:
     """task_assets has FK ON DELETE CASCADE — verify rows actually vanish."""
     with connect(db_path) as conn:

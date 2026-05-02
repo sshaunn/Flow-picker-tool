@@ -390,6 +390,44 @@ def get_task_assets(
     return [(r["asset_order"], r["asset_path"], r["asset_type"]) for r in rows]
 
 
+_RESUMABLE_STATUSES = ("retry_waiting", "failed", "download_failed", "manual_review")
+
+
+def resume_task(conn: sqlite3.Connection, task_id: str) -> bool:
+    """Reset a stuck task's retry counter and flip it back to ``pending``
+    so the scheduler can claim it again. Preserves ``downloaded_count``
+    and ``generation_round_count`` so the next run continues from where
+    the prior attempts left off — the customer-facing "继续任务" action.
+
+    Returns True if the task was eligible (its status was non-terminal).
+    Refuses to touch ``running`` tasks (would race the worker thread)
+    or ``success`` tasks (nothing to resume).
+    """
+    row = conn.execute(
+        "SELECT status FROM tasks WHERE task_id = ?", (task_id,)
+    ).fetchone()
+    if row is None:
+        return False
+    if row["status"] not in _RESUMABLE_STATUSES:
+        return False
+    with transaction(conn):
+        conn.execute(
+            """
+            UPDATE tasks SET
+                status = 'pending',
+                retry_count = 0,
+                error_type = NULL,
+                error_message = NULL,
+                assigned_workstation_id = NULL,
+                started_at = NULL,
+                finished_at = NULL
+             WHERE task_id = ?
+            """,
+            (task_id,),
+        )
+    return True
+
+
 def delete_task(
     conn: sqlite3.Connection,
     task_id: str,

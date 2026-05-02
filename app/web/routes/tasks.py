@@ -26,6 +26,7 @@ from app.tasks.repository import (
     get_task,
     get_task_assets,
     list_tasks,
+    resume_task,
 )
 from app.web.dependencies import get_config, get_db_conn
 
@@ -165,6 +166,30 @@ async def create_route(
     record = get_task(conn, new_id)
     assert record is not None
     return _to_out(record, get_task_assets(conn, new_id))
+
+
+@router.post("/{task_id}/resume", response_model=TaskOut)
+def resume_route(
+    task_id: str,
+    conn: sqlite3.Connection = Depends(get_db_conn),
+) -> TaskOut:
+    """Continue a task whose retry budget was exhausted.
+
+    Clears ``retry_count`` and flips status back to ``pending`` while
+    leaving ``downloaded_count`` and ``task_results`` intact. The next
+    scheduler pass will claim it and resume from the existing progress.
+    """
+    if not resume_task(conn, task_id):
+        record = get_task(conn, task_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail=f"task not found: {task_id}")
+        raise HTTPException(
+            status_code=409,
+            detail=f"task {task_id} is in status '{record.status}' — cannot resume",
+        )
+    refreshed = get_task(conn, task_id)
+    assert refreshed is not None
+    return _to_out(refreshed, get_task_assets(conn, task_id))
 
 
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)

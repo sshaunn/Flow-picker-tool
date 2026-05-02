@@ -3,10 +3,28 @@
    every push_interval_sec. Deliberately excludes the <video> grid so
    the WS swap doesn't tear down a clip the customer is previewing. #}
 
+{% set is_resumable = task.status in ('retry_waiting', 'failed', 'download_failed', 'manual_review') %}
+{% set retry_exhausted = task.retry_count >= task.max_retry_count and task.status == 'retry_waiting' %}
+
 <section class="bg-white rounded-lg border border-slate-200 p-5 mb-6">
   <div class="flex items-center justify-between mb-3">
-    <h2 class="text-base font-semibold">状态</h2>
-    {{ task_status_badge(task.status) }}
+    <div class="flex items-center gap-2">
+      <h2 class="text-base font-semibold">状态</h2>
+      {{ task_status_badge(task.status) }}
+      {% if retry_exhausted %}
+        <span class="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
+          重试已用尽
+        </span>
+      {% endif %}
+    </div>
+    {% if is_resumable %}
+      <button hx-post="/api/tasks/{{ task.task_id }}/resume"
+              hx-confirm="继续这个任务？已下载的视频会保留，调度器会接着采集到 {{ task.target_count }} 个为止。"
+              hx-swap="none"
+              class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">
+        继续任务
+      </button>
+    {% endif %}
   </div>
   <div class="mb-4">{{ progress_bar(task.downloaded_count, task.target_count) }}</div>
   <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
