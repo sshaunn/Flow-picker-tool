@@ -55,7 +55,9 @@ def test_project_url_regex_rejects_non_project_pages() -> None:
 
 
 class _MockPage:
-    """Drives ``page.url`` from a list of return values one at a time."""
+    """Drives ``page.url`` and ``page.evaluate(...)`` from a list of return
+    values, advancing one position per read so the test can simulate a
+    sequence of navigations."""
 
     def __init__(self, urls: list[str]) -> None:
         self._urls = urls
@@ -67,7 +69,18 @@ class _MockPage:
         self._idx += 1
         return url
 
+    def evaluate(self, _expr: str):
+        # Mirror the property so the production-side eval fallback is
+        # exercised; tests don't care which source caught the URL.
+        return self._urls[min(self._idx, len(self._urls) - 1)]
+
     def goto(self, *args, **kwargs) -> None:
+        return None
+
+    def bring_to_front(self) -> None:
+        return None
+
+    def on(self, _event, _handler) -> None:
         return None
 
 
@@ -78,6 +91,9 @@ class _MockContext:
 
     def new_page(self) -> _MockPage:
         return self.pages[0]
+
+    def on(self, _event, _handler) -> None:
+        return None
 
     def close(self) -> None:
         self.closed = True
@@ -165,16 +181,28 @@ def test_session_capture_callback_failure_yields_error(tmp_path: Path) -> None:
 
 
 def test_session_browser_closed_externally_cancels(tmp_path: Path) -> None:
-    """If page.url raises (window closed), session moves to CANCELLED."""
+    """When the customer closes the Chrome window, ctx.pages becomes
+    empty; the watcher must move to CANCELLED so the UI stops polling."""
 
-    class _ClosedPage:
+    class _ShortLivedPage:
         @property
         def url(self):
-            raise RuntimeError("Target page, context or browser has been closed")
+            return "https://labs.google/fx/tools/flow"
+        def evaluate(self, _expr):
+            return "https://labs.google/fx/tools/flow"
         def goto(self, *args, **kwargs): return None
+        def bring_to_front(self): return None
+        def on(self, *args, **kwargs): return None
 
-    page = _ClosedPage()
-    ctx = MagicMock(pages=[page], close=MagicMock())
+    page = _ShortLivedPage()
+    pages_list = [page]
+
+    class _ClosingCtx:
+        pages = pages_list
+        def on(self, *args, **kwargs): return None
+        def close(self): pass
+
+    ctx = _ClosingCtx()
     chromium = MagicMock()
     chromium.launch_persistent_context.return_value = ctx
     pw = MagicMock(chromium=chromium)
@@ -189,6 +217,11 @@ def test_session_browser_closed_externally_cancels(tmp_path: Path) -> None:
             poll_interval_sec=0.01,
         )
         session.start()
+        # Wait for the watcher to enter waiting state, then drain pages
+        # to simulate the customer closing the Chrome window.
+        _wait_for(lambda: session.status().state == LoginState.WAITING_FOR_PROJECT,
+                  timeout=2.0)
+        pages_list.clear()
         _wait_for(lambda: session.status().state == LoginState.CANCELLED, timeout=2.0)
     assert session.status().state == LoginState.CANCELLED
 

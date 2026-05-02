@@ -97,6 +97,11 @@ class LoginSession:
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._snap = LoginSnapshot(state=LoginState.NOT_STARTED)
+        # Make sure the parent logger has a console handler so our INFO
+        # lines actually surface — uvicorn doesn't auto-attach handlers
+        # to custom ``flow_harvester.*`` loggers.
+        from app.utils.logging import _ensure_parent_logger
+        _ensure_parent_logger()
         self._log = logging.getLogger("flow_harvester.login")
 
     # ------------------------------------------------------------------ public
@@ -171,50 +176,91 @@ class LoginSession:
                 chromium_sandbox=True,
             )
             try:
+                # Belt-and-suspenders URL tracking. patchright's cached
+                # ``page.url`` property has been observed to lag behind
+                # SPA navigation in Flow, so we also register a
+                # ``framenavigated`` event listener and fall back to
+                # ``page.evaluate("() => location.href")``. New tabs /
+                # popups get the listener via the context's page event.
+                event_urls: list[str] = []
+
+                def _on_frame_nav(frame) -> None:
+                    if frame.parent_frame is None and frame.url:
+                        if frame.url not in event_urls:
+                            event_urls.append(frame.url)
+
+                def _on_new_page(new_page) -> None:
+                    new_page.on("framenavigated", _on_frame_nav)
+
+                ctx.on("page", _on_new_page)
+                for existing in ctx.pages:
+                    existing.on("framenavigated", _on_frame_nav)
+
                 page = ctx.pages[0] if ctx.pages else ctx.new_page()
                 page.goto(self.entry_url, wait_until="domcontentloaded")
+                try:
+                    page.bring_to_front()
+                except Exception:  # noqa: BLE001
+                    pass
+
                 self._set(state=LoginState.WAITING_FOR_LOGIN)
-                self._watch_for_project_url(page)
+                self._watch_for_project_url(ctx, event_urls)
             finally:
                 try:
                     ctx.close()
                 except Exception:  # noqa: BLE001
                     pass
 
-    def _watch_for_project_url(self, page) -> None:
-        """Poll ``page.url`` until either the project URL matches, the
-        operator cancels, or the page object goes away (browser closed)."""
+    def _watch_for_project_url(self, ctx, event_urls: list[str]) -> None:
+        """Scan every open page until one URL matches the project pattern."""
         while not self._stop.is_set():
             try:
-                url = page.url
+                pages = list(ctx.pages)
             except Exception:
-                # Page closed by the customer — treat as cancellation.
+                self._set(state=LoginState.CANCELLED, finished_at=_now_iso())
+                return
+            if not pages:
                 self._set(state=LoginState.CANCELLED, finished_at=_now_iso())
                 return
 
-            match = PROJECT_URL_RE.match(url)
-            if match:
-                captured = match.group(0)
+            collected: list[str] = []
+            for p in pages:
                 try:
-                    self.on_capture(captured)
-                except Exception as exc:  # noqa: BLE001
+                    collected.append(p.url)
+                except Exception:  # noqa: BLE001
+                    pass
+                try:
+                    live = p.evaluate("() => location.href")
+                    if isinstance(live, str):
+                        collected.append(live)
+                except Exception:  # noqa: BLE001
+                    pass
+            collected.extend(event_urls)
+
+            for url in collected:
+                match = PROJECT_URL_RE.match(url) if url else None
+                if match:
+                    captured = match.group(0)
+                    self._log.info("login %s captured project url: %s",
+                                   self.workstation_id, captured)
+                    try:
+                        self.on_capture(captured)
+                    except Exception as exc:  # noqa: BLE001
+                        self._set(
+                            state=LoginState.ERROR,
+                            error=f"capture callback failed: {exc}",
+                            finished_at=_now_iso(),
+                        )
+                        return
                     self._set(
-                        state=LoginState.ERROR,
-                        error=f"capture callback failed: {exc}",
+                        state=LoginState.CAPTURED,
+                        captured_url=captured,
                         finished_at=_now_iso(),
                     )
                     return
-                self._set(
-                    state=LoginState.CAPTURED,
-                    captured_url=captured,
-                    finished_at=_now_iso(),
-                )
-                return
 
-            # Mid-flow transition: once the user has reached anywhere on
-            # the Flow tool (even before project pick), surface "waiting
-            # for project" so the UI can prompt them to open / create one.
-            if "/fx/tools/flow" in url and self._snap.state == LoginState.WAITING_FOR_LOGIN:
+            if (self._snap.state == LoginState.WAITING_FOR_LOGIN
+                    and any("/fx/tools/flow" in u for u in collected if u)):
                 self._set(state=LoginState.WAITING_FOR_PROJECT)
 
             time.sleep(self._poll)
