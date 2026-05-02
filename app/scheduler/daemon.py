@@ -69,7 +69,7 @@ class SchedulerDaemon:
         *,
         db_path: Path | str,
         config: AppConfig,
-        workstations: Iterable[WorkstationConfig],
+        workstations: Iterable[WorkstationConfig] | None = None,
         idle_poll_sec: float = 5.0,
         max_rounds_per_run: int = 0,
         use_mock: bool = False,
@@ -79,7 +79,12 @@ class SchedulerDaemon:
     ):
         self._db_path = Path(db_path)
         self._config = config
-        self._workstations = list(workstations)
+        # Production: leave None so each pass re-queries the DB and picks
+        # up workstations added through the Web UI after the daemon was
+        # constructed. Tests pass an explicit list to lock the set.
+        self._workstations_override: Optional[list[WorkstationConfig]] = (
+            list(workstations) if workstations is not None else None
+        )
         self._idle_poll_sec = max(0.1, idle_poll_sec)
         self._max_rounds_per_run = max_rounds_per_run
         self._use_mock = use_mock
@@ -182,12 +187,26 @@ class SchedulerDaemon:
                 self._status.running = False
             self._log.info("daemon thread exiting")
 
+    def _resolve_workstations(self) -> list[WorkstationConfig]:
+        if self._workstations_override is not None:
+            return self._workstations_override
+        from app.db.connection import connect
+        from app.workstations.repository import list_workstations
+        conn = connect(self._db_path, check_same_thread=False)
+        try:
+            return list_workstations(conn)
+        finally:
+            conn.close()
+
     def _run_one_pass(self) -> MultiRunSummary:
+        ws_list = self._resolve_workstations()
+        if not ws_list:
+            return MultiRunSummary()
         try:
             return run_multi_workstation(
                 db_path=self._db_path,
                 config=self._config,
-                workstations=self._workstations,
+                workstations=ws_list,
                 max_rounds=self._max_rounds_per_run,
                 use_mock=self._use_mock,
                 mock_round_plans_per_ws=self._mock_plans,

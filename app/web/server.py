@@ -45,25 +45,25 @@ def _make_lifespan(*, auto_start_daemon: bool):
         init_schema(Path(cfg.db_path))
         app_paths.ensure_app_dirs()
 
-        # Pull workstations from DB at startup. If empty, daemon idles
-        # until the customer adds one via POST /api/workstations.
-        with connect(cfg.db_path) as conn:
-            ws_list = list_workstations(conn)
-
+        # Daemon re-queries workstations from DB each pass (so WS added
+        # via the Web UI after boot are picked up automatically).
         daemon = SchedulerDaemon(
             db_path=cfg.db_path,
             config=cfg,
-            workstations=ws_list,
             idle_poll_sec=app.state.idle_poll_sec,
             use_mock=app.state.use_mock,
             mock_round_plans_per_ws=app.state.mock_round_plans_per_ws,
         )
         app.state.daemon = daemon
 
-        if auto_start_daemon and ws_list:
+        with connect(cfg.db_path) as conn:
+            ws_count = len(list_workstations(conn))
+
+        if auto_start_daemon:
             daemon.start()
-            log.info("scheduler daemon started with %d workstation(s)", len(ws_list))
-        elif not ws_list:
+            log.info("scheduler daemon started; %d workstation(s) currently in DB",
+                     ws_count)
+        elif ws_count == 0:
             log.info("no workstations in DB; scheduler idle until POST /api/workstations")
         try:
             yield
