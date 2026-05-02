@@ -135,6 +135,37 @@ def test_create_task_explicit_id(db_path: Path, tmp_path: Path) -> None:
     assert new_id == "T_CUSTOM_ID"
 
 
+def test_create_task_persists_flow_mode_override(
+    db_path: Path, tmp_path: Path
+) -> None:
+    """Per-task flow_mode is round-tripped through the DB."""
+    from app.config.loader import FlowModeSpec
+
+    fm = FlowModeSpec(
+        model="Veo 3.1 - Quality", output_count=2, duration_sec=4, aspect="1:1",
+    )
+    with connect(db_path) as conn:
+        new_id = create_task(conn, _draft(tmp_path, flow_mode=fm))
+        record = get_task(conn, new_id)
+    assert record is not None
+    assert record.flow_mode is not None
+    assert record.flow_mode.model == "Veo 3.1 - Quality"
+    assert record.flow_mode.output_count == 2
+    assert record.flow_mode.duration_sec == 4
+    assert record.flow_mode.aspect == "1:1"
+    # Tab/subtab left None on the draft -> still None on the record.
+    assert record.flow_mode.tab is None
+
+
+def test_create_task_no_flow_mode_record_is_none(
+    db_path: Path, tmp_path: Path
+) -> None:
+    with connect(db_path) as conn:
+        new_id = create_task(conn, _draft(tmp_path))
+        record = get_task(conn, new_id)
+    assert record is not None and record.flow_mode is None
+
+
 def test_create_task_rejects_zero_target(db_path: Path, tmp_path: Path) -> None:
     with connect(db_path) as conn:
         with pytest.raises(TaskRepositoryError, match="target_count"):

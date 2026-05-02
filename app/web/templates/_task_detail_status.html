@@ -42,6 +42,21 @@
       </dd>
     </div>
     {% endif %}
+    {% if task.flow_mode %}
+    <div class="sm:col-span-2">
+      <dt class="text-xs text-slate-500">Generation overrides</dt>
+      <dd class="mt-0.5 text-xs text-slate-700">
+        {%- set parts = [] -%}
+        {%- if task.flow_mode.model %}{% set _ = parts.append('model=' ~ task.flow_mode.model) %}{% endif -%}
+        {%- if task.flow_mode.output_count %}{% set _ = parts.append('output=' ~ task.flow_mode.output_count) %}{% endif -%}
+        {%- if task.flow_mode.duration_sec %}{% set _ = parts.append('duration=' ~ task.flow_mode.duration_sec ~ 's') %}{% endif -%}
+        {%- if task.flow_mode.aspect %}{% set _ = parts.append('aspect=' ~ task.flow_mode.aspect) %}{% endif -%}
+        {%- if task.flow_mode.tab %}{% set _ = parts.append('tab=' ~ task.flow_mode.tab) %}{% endif -%}
+        {%- if task.flow_mode.subtab %}{% set _ = parts.append('subtab=' ~ task.flow_mode.subtab) %}{% endif -%}
+        {{ parts | join(' · ') if parts else 'none' }}
+      </dd>
+    </div>
+    {% endif %}
     {% if task.error_type %}
     <div class="sm:col-span-2">
       <dt class="text-xs text-slate-500">Last error</dt>

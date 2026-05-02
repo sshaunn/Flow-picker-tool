@@ -13,7 +13,7 @@ from datetime import date
 from pathlib import Path
 from typing import Iterable, Optional
 
-from app.config.loader import AppConfig, WorkstationConfig
+from app.config.loader import AppConfig, FlowModeSpec, WorkstationConfig
 from app.db.connection import connect, transaction
 from app.scheduler.claim import claim_one
 from app.scheduler.state import (
@@ -61,6 +61,7 @@ def _flow_port_factory(
     use_mock: bool,
     mock_round_plans: Optional[list[MockRoundPlan]] = None,
     mock_initial_state: PageState = PageState.READY,
+    task_flow_mode: Optional[FlowModeSpec] = None,
 ) -> FlowPort:
     if use_mock:
         plans = mock_round_plans if mock_round_plans is not None else [MockRoundPlan.success(4)]
@@ -73,12 +74,13 @@ def _flow_port_factory(
         raise RuntimeError(
             "FlowPort not available. Install patchright or use --mock."
         ) from exc
+    from app.runner.multi import _merge_flow_mode
     return PlaywrightFlowPort(
         entry_url=config.flow.entry_url,
         profile_path=Path(workstation.browser_profile_path),
         page_action_timeout_sec=config.generation.page_action_timeout_sec,
         project_url=workstation.flow_project_url,
-        flow_mode_spec=workstation.flow_mode,
+        flow_mode_spec=_merge_flow_mode(workstation.flow_mode, task_flow_mode),
     )
 
 
@@ -138,9 +140,18 @@ def run_single_workstation(
                 initial_round_count=row["generation_round_count"],
                 source_assets=_load_source_assets(conn, row["task_id"]),
             )
+            task_flow_mode: Optional[FlowModeSpec] = None
+            fm_fields = {
+                k: row.get(f"flow_mode_{k}")
+                for k in ("tab", "subtab", "aspect", "output_count",
+                          "duration_sec", "model")
+            }
+            if any(v is not None for v in fm_fields.values()):
+                task_flow_mode = FlowModeSpec(**fm_fields)
             flow = _flow_port_factory(
                 config,
                 target,
+                task_flow_mode=task_flow_mode,
                 use_mock=use_mock,
                 mock_round_plans=mock_round_plans,
                 mock_initial_state=mock_initial_state,

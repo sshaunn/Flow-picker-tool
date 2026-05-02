@@ -332,6 +332,12 @@ async def tasks_create(
     target_count: int = Form(...),
     asset_kind: str = Form("reference"),
     assets: list[UploadFile] = File(...),
+    mode_tab: Optional[str] = Form(None),
+    mode_subtab: Optional[str] = Form(None),
+    mode_aspect: Optional[str] = Form(None),
+    mode_output_count: Optional[str] = Form(None),
+    mode_duration_sec: Optional[str] = Form(None),
+    mode_model: Optional[str] = Form(None),
     conn: sqlite3.Connection = Depends(get_db_conn),
     config=Depends(get_config),
 ) -> RedirectResponse:
@@ -353,10 +359,17 @@ async def tasks_create(
             asset_drafts.append(AssetDraft(
                 path=dest, kind=asset_kind, copy_into_managed_dir=True,
             ))
+        flow_mode = _build_flow_mode(
+            tab=mode_tab, subtab=mode_subtab, aspect=mode_aspect,
+            output_count=_empty_or_int(mode_output_count),
+            duration_sec=_empty_or_int(mode_duration_sec),
+            model=mode_model,
+        )
         draft = TaskDraft(
             sku_id=sku_id, creative_id=creative_id, segment_id=segment_id,
             video_prompt=video_prompt, target_count=target_count,
             assets=asset_drafts,
+            flow_mode=flow_mode,
         )
         try:
             new_id = create_task(

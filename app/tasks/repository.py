@@ -26,6 +26,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app import paths
+from app.config.loader import FlowModeSpec
 from app.db.connection import transaction
 
 
@@ -77,6 +78,11 @@ class TaskDraft:
     ``task_id`` is auto-generated (``T_<utc-yyyymmdd-hhmmss>_<6 hex>``) when
     omitted so the UI doesn't have to invent one. Pass an explicit value
     only when restoring from a backup or migrating between systems.
+
+    ``flow_mode`` is an optional per-task override; any field left None
+    falls back to the assigned workstation's preset at run time. This
+    lets the same workstation drive tasks with different model / duration
+    / aspect / output-count combinations without re-configuring the WS.
     """
     sku_id: str
     creative_id: str
@@ -88,6 +94,7 @@ class TaskDraft:
     depends_on_task_id: str | None = None
     max_retry_count: int | None = None
     task_id: str | None = None
+    flow_mode: FlowModeSpec | None = None
 
 
 @dataclass
@@ -112,6 +119,7 @@ class TaskRecord:
     error_type: str | None
     error_message: str | None
     created_at: str
+    flow_mode: FlowModeSpec | None = None
 
 
 def generate_task_id() -> str:
@@ -239,6 +247,14 @@ def create_task(
 
     primary_path, primary_kind = final_assets[0]
 
+    fm = draft.flow_mode
+    fm_tab = fm.tab if fm else None
+    fm_subtab = fm.subtab if fm else None
+    fm_aspect = fm.aspect if fm else None
+    fm_output = fm.output_count if fm else None
+    fm_duration = fm.duration_sec if fm else None
+    fm_model = fm.model if fm else None
+
     with transaction(conn):
         try:
             conn.execute(
@@ -246,13 +262,17 @@ def create_task(
                 INSERT INTO tasks (
                     task_id, sku_id, creative_id, segment_id, sequence_index,
                     source_asset_path, source_asset_type, video_prompt,
-                    target_count, depends_on_task_id, max_retry_count, status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+                    target_count, depends_on_task_id, max_retry_count, status,
+                    flow_mode_tab, flow_mode_subtab, flow_mode_aspect,
+                    flow_mode_output_count, flow_mode_duration_sec, flow_mode_model
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending',
+                          ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     task_id, sku, creative, segment, draft.sequence_index,
                     str(primary_path), primary_kind, prompt,
                     draft.target_count, draft.depends_on_task_id, max_retry,
+                    fm_tab, fm_subtab, fm_aspect, fm_output, fm_duration, fm_model,
                 ),
             )
         except sqlite3.IntegrityError as exc:
@@ -272,6 +292,18 @@ def create_task(
 
 
 def _row_to_record(row: sqlite3.Row) -> TaskRecord:
+    flow_fields = {
+        "tab": row["flow_mode_tab"],
+        "subtab": row["flow_mode_subtab"],
+        "aspect": row["flow_mode_aspect"],
+        "output_count": row["flow_mode_output_count"],
+        "duration_sec": row["flow_mode_duration_sec"],
+        "model": row["flow_mode_model"],
+    }
+    flow_mode = (
+        FlowModeSpec(**flow_fields)
+        if any(v is not None for v in flow_fields.values()) else None
+    )
     return TaskRecord(
         task_id=row["task_id"],
         sku_id=row["sku_id"],
@@ -292,6 +324,7 @@ def _row_to_record(row: sqlite3.Row) -> TaskRecord:
         error_type=row["error_type"],
         error_message=row["error_message"],
         created_at=row["created_at"],
+        flow_mode=flow_mode,
     )
 
 
@@ -300,7 +333,9 @@ _LIST_COLUMNS = (
     "source_asset_path, source_asset_type, video_prompt, target_count, "
     "downloaded_count, generation_round_count, status, "
     "assigned_workstation_id, retry_count, max_retry_count, "
-    "depends_on_task_id, error_type, error_message, created_at"
+    "depends_on_task_id, error_type, error_message, created_at, "
+    "flow_mode_tab, flow_mode_subtab, flow_mode_aspect, "
+    "flow_mode_output_count, flow_mode_duration_sec, flow_mode_model"
 )
 
 

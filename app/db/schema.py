@@ -181,6 +181,14 @@ _MIGRATIONS: list[tuple[str, str]] = [
     ("workstations", "flow_mode_output_count INTEGER"),
     ("workstations", "flow_mode_duration_sec INTEGER"),
     ("workstations", "flow_mode_model TEXT"),
+    # Per-task flow_mode overrides — any column left NULL falls back to
+    # the workstation's preset at runtime.
+    ("tasks", "flow_mode_tab TEXT"),
+    ("tasks", "flow_mode_subtab TEXT"),
+    ("tasks", "flow_mode_aspect TEXT"),
+    ("tasks", "flow_mode_output_count INTEGER"),
+    ("tasks", "flow_mode_duration_sec INTEGER"),
+    ("tasks", "flow_mode_model TEXT"),
 ]
 
 

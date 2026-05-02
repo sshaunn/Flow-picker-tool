@@ -65,6 +65,70 @@
       </p>
     </div>
 
+    <fieldset class="border border-slate-200 rounded p-3">
+      <legend class="text-sm font-medium px-2">Generation parameters</legend>
+      <p class="text-xs text-slate-500 mb-2">
+        Leave any field blank to fall back to the assigned workstation's preset.
+      </p>
+      <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <div>
+          <label class="block text-xs text-slate-600 mb-0.5">Model</label>
+          <select name="mode_model" class="w-full rounded border border-slate-300 px-2 py-1.5 text-sm">
+            <option value="">(WS default)</option>
+            <option value="Veo 3.1 - Fast">Veo 3.1 - Fast</option>
+            <option value="Veo 3.1 - Quality">Veo 3.1 - Quality</option>
+            <option value="Veo 3 - Fast">Veo 3 - Fast</option>
+            <option value="Veo 3 - Quality">Veo 3 - Quality</option>
+            <option value="Nano Banana 2">Nano Banana 2 (image)</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-600 mb-0.5">Output count</label>
+          <select name="mode_output_count" class="w-full rounded border border-slate-300 px-2 py-1.5 text-sm">
+            <option value="">(WS default)</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-600 mb-0.5">Duration (sec)</label>
+          <select name="mode_duration_sec" class="w-full rounded border border-slate-300 px-2 py-1.5 text-sm">
+            <option value="">(WS default)</option>
+            <option value="4">4</option>
+            <option value="6">6</option>
+            <option value="8">8</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-600 mb-0.5">Aspect ratio</label>
+          <select name="mode_aspect" class="w-full rounded border border-slate-300 px-2 py-1.5 text-sm">
+            <option value="">(WS default)</option>
+            <option value="9:16">9:16 (vertical)</option>
+            <option value="16:9">16:9 (landscape)</option>
+            <option value="1:1">1:1 (square)</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-600 mb-0.5">Tab</label>
+          <select name="mode_tab" class="w-full rounded border border-slate-300 px-2 py-1.5 text-sm">
+            <option value="">(WS default)</option>
+            <option value="video">video</option>
+            <option value="image">image</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-600 mb-0.5">Subtab</label>
+          <select name="mode_subtab" class="w-full rounded border border-slate-300 px-2 py-1.5 text-sm">
+            <option value="">(WS default)</option>
+            <option value="ingredients">ingredients</option>
+            <option value="frames">frames</option>
+          </select>
+        </div>
+      </div>
+    </fieldset>
+
     <div class="flex justify-end gap-2 pt-2">
       <a href="/tasks" class="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900">Cancel</a>
       <button type="submit" class="px-4 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">

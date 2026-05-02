@@ -23,7 +23,7 @@ from datetime import date
 from pathlib import Path
 from typing import Iterable, Optional
 
-from app.config.loader import AppConfig, WorkstationConfig
+from app.config.loader import AppConfig, FlowModeSpec, WorkstationConfig
 from app.db.connection import connect, transaction
 from app.scheduler.claim import claim_one
 from app.scheduler.recovery import recover_zombie_tasks
@@ -62,6 +62,31 @@ class MultiRunSummary:
     manual_review: int = 0
 
 
+def _merge_flow_mode(
+    ws_mode: Optional[FlowModeSpec],
+    task_mode: Optional[FlowModeSpec],
+) -> Optional[FlowModeSpec]:
+    """Per-task flow_mode wins over workstation default field-by-field.
+
+    Any field the task left None falls back to the workstation's preset
+    so the operator only has to override what they actually want changed.
+    """
+    if task_mode is None:
+        return ws_mode
+    if ws_mode is None:
+        return task_mode
+    return FlowModeSpec(
+        tab=task_mode.tab if task_mode.tab is not None else ws_mode.tab,
+        subtab=task_mode.subtab if task_mode.subtab is not None else ws_mode.subtab,
+        aspect=task_mode.aspect if task_mode.aspect is not None else ws_mode.aspect,
+        output_count=(task_mode.output_count if task_mode.output_count is not None
+                      else ws_mode.output_count),
+        duration_sec=(task_mode.duration_sec if task_mode.duration_sec is not None
+                      else ws_mode.duration_sec),
+        model=task_mode.model if task_mode.model is not None else ws_mode.model,
+    )
+
+
 def _build_flow_port(
     config: AppConfig,
     workstation: WorkstationConfig,
@@ -69,6 +94,7 @@ def _build_flow_port(
     use_mock: bool,
     mock_round_plans: Optional[list[MockRoundPlan]],
     mock_initial_state: PageState,
+    task_flow_mode: Optional[FlowModeSpec] = None,
 ) -> FlowPort:
     if use_mock:
         plans = mock_round_plans if mock_round_plans is not None else [MockRoundPlan.success(4)]
@@ -84,7 +110,7 @@ def _build_flow_port(
         profile_path=Path(workstation.browser_profile_path),
         page_action_timeout_sec=config.generation.page_action_timeout_sec,
         project_url=workstation.flow_project_url,
-        flow_mode_spec=workstation.flow_mode,
+        flow_mode_spec=_merge_flow_mode(workstation.flow_mode, task_flow_mode),
     )
 
 
@@ -100,12 +126,21 @@ def _execute_in_thread(
     run_date: date,
 ) -> str:
     log = get_worker_logger(config.log_root, workstation.id)
+    # Pull per-task flow_mode override (any field NULL means "use WS default").
+    task_flow_mode: Optional[FlowModeSpec] = None
+    fm_fields = {
+        k: task_row.get(f"flow_mode_{k}")
+        for k in ("tab", "subtab", "aspect", "output_count", "duration_sec", "model")
+    }
+    if any(v is not None for v in fm_fields.values()):
+        task_flow_mode = FlowModeSpec(**fm_fields)
     flow = _build_flow_port(
         config,
         workstation,
         use_mock=use_mock,
         mock_round_plans=mock_round_plans,
         mock_initial_state=mock_initial_state,
+        task_flow_mode=task_flow_mode,
     )
     conn = connect(db_path)
     try:
