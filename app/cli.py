@@ -688,6 +688,501 @@ def report(ctx: click.Context, report_date: str | None) -> None:
     click.echo(f"report written: {out_path}")
 
 
+@cli.group("workstation")
+def workstation_group() -> None:
+    """Manage workstation records in the DB.
+
+    The Web UI calls into the same repository; this CLI group exists so the
+    customer install can be smoke-tested from a terminal, and so dev
+    iterations don't have to round-trip through yaml.
+    """
+
+
+@workstation_group.command("list")
+@click.pass_context
+def workstation_list(ctx: click.Context) -> None:
+    """List workstation records currently in the DB."""
+    from app.db.connection import connect
+    from app.db.schema import init_schema
+    from app.workstations.repository import list_workstations
+
+    cfg, _ws = _load_or_die(ctx.obj["settings_path"], ctx.obj["workstations_path"])
+    init_schema(Path(cfg.db_path))
+    with connect(cfg.db_path) as conn:
+        rows = list_workstations(conn)
+    if not rows:
+        click.echo("(no workstations)")
+        return
+    for ws in rows:
+        click.echo(
+            f"  {ws.id} status={ws.status} daily_limit={ws.daily_task_limit} "
+            f"profile={ws.browser_profile_path} project={ws.flow_project_url or '-'}"
+        )
+
+
+@workstation_group.command("add")
+@click.option("--id", "ws_id", required=True, help="Workstation id, e.g. WS_A")
+@click.option("--account", "account_label", required=True, help="Account label")
+@click.option("--profile", "profile_path", default=None,
+              help="Browser profile dir (default: paths.workstation_profile_path(id))")
+@click.option("--daily-limit", "daily_limit", default=20, show_default=True,
+              type=int, help="Daily task limit")
+@click.option("--project-url", "project_url", default=None,
+              help="Flow project URL (paste after first login)")
+@click.option("--mode-tab", default=None, help="video | image")
+@click.option("--mode-subtab", default=None, help="ingredients | frames")
+@click.option("--mode-aspect", default=None, help="9:16 | 16:9 | 1:1")
+@click.option("--mode-output-count", default=None, type=int, help="1..4")
+@click.option("--mode-duration-sec", default=None, type=int, help="4 | 6 | 8")
+@click.option("--mode-model", default=None, help="e.g. 'Veo 3.1 - Fast'")
+@click.pass_context
+def workstation_add(
+    ctx: click.Context,
+    ws_id: str,
+    account_label: str,
+    profile_path: str | None,
+    daily_limit: int,
+    project_url: str | None,
+    mode_tab: str | None,
+    mode_subtab: str | None,
+    mode_aspect: str | None,
+    mode_output_count: int | None,
+    mode_duration_sec: int | None,
+    mode_model: str | None,
+) -> None:
+    """Add a new workstation row (id must not already exist)."""
+    from app import paths as app_paths
+    from app.config.loader import FlowModeSpec, WorkstationConfig
+    from app.db.connection import connect
+    from app.db.schema import init_schema
+    from app.workstations.repository import (
+        WorkstationConflictError,
+        create_workstation,
+    )
+
+    cfg, _ws = _load_or_die(ctx.obj["settings_path"], ctx.obj["workstations_path"])
+    init_schema(Path(cfg.db_path))
+
+    if profile_path is None:
+        profile_path = str(app_paths.workstation_profile_path(ws_id))
+
+    mode_kwargs = {
+        "tab": mode_tab,
+        "subtab": mode_subtab,
+        "aspect": mode_aspect,
+        "output_count": mode_output_count,
+        "duration_sec": mode_duration_sec,
+        "model": mode_model,
+    }
+    flow_mode = (
+        FlowModeSpec(**mode_kwargs)
+        if any(v is not None for v in mode_kwargs.values())
+        else None
+    )
+
+    try:
+        ws = WorkstationConfig(
+            id=ws_id,
+            account_label=account_label,
+            browser_profile_path=profile_path,
+            daily_task_limit=daily_limit,
+            flow_project_url=project_url,
+            flow_mode=flow_mode,
+        )
+    except Exception as exc:  # noqa: BLE001 — pydantic ValidationError, etc.
+        click.echo(f"[validation error] {exc}", err=True)
+        sys.exit(2)
+
+    with connect(cfg.db_path) as conn:
+        try:
+            create_workstation(conn, ws)
+        except WorkstationConflictError as exc:
+            click.echo(f"[error] {exc}", err=True)
+            sys.exit(2)
+    Path(profile_path).mkdir(parents=True, exist_ok=True)
+    click.echo(f"added: {ws_id}  profile={profile_path}")
+
+
+@workstation_group.command("update")
+@click.option("--id", "ws_id", required=True, help="Workstation id to update")
+@click.option("--account", "account_label", default=None)
+@click.option("--profile", "profile_path", default=None)
+@click.option("--daily-limit", "daily_limit", default=None, type=int)
+@click.option("--project-url", "project_url", default=None,
+              help="Use 'CLEAR' to set to NULL")
+@click.pass_context
+def workstation_update(
+    ctx: click.Context,
+    ws_id: str,
+    account_label: str | None,
+    profile_path: str | None,
+    daily_limit: int | None,
+    project_url: str | None,
+) -> None:
+    """Patch one or more editable fields on an existing workstation."""
+    from app.db.connection import connect
+    from app.db.schema import init_schema
+    from app.workstations.repository import (
+        WorkstationNotFoundError,
+        update_workstation_config,
+    )
+
+    cfg, _ws = _load_or_die(ctx.obj["settings_path"], ctx.obj["workstations_path"])
+    init_schema(Path(cfg.db_path))
+
+    fields: dict = {}
+    if account_label is not None:
+        fields["account_label"] = account_label
+    if profile_path is not None:
+        fields["browser_profile_path"] = profile_path
+    if daily_limit is not None:
+        fields["daily_task_limit"] = daily_limit
+    if project_url is not None:
+        fields["flow_project_url"] = None if project_url == "CLEAR" else project_url
+    if not fields:
+        click.echo("[error] specify at least one field to update", err=True)
+        sys.exit(2)
+
+    with connect(cfg.db_path) as conn:
+        try:
+            update_workstation_config(conn, ws_id, **fields)
+        except WorkstationNotFoundError:
+            click.echo(f"[error] workstation not found: {ws_id}", err=True)
+            sys.exit(2)
+    click.echo(f"updated: {ws_id}  fields={list(fields)}")
+
+
+@workstation_group.command("delete")
+@click.option("--id", "ws_id", required=True, help="Workstation id to delete")
+@click.option("--yes", is_flag=True, help="Skip confirmation prompt")
+@click.pass_context
+def workstation_delete(ctx: click.Context, ws_id: str, yes: bool) -> None:
+    """Remove a workstation row. Use carefully — task history that references
+    this id will become orphaned (the FK is informational, not enforced)."""
+    from app.db.connection import connect
+    from app.db.schema import init_schema
+    from app.workstations.repository import delete_workstation
+
+    cfg, _ws = _load_or_die(ctx.obj["settings_path"], ctx.obj["workstations_path"])
+    init_schema(Path(cfg.db_path))
+
+    if not yes:
+        click.confirm(f"delete workstation {ws_id}?", abort=True)
+    with connect(cfg.db_path) as conn:
+        ok = delete_workstation(conn, ws_id)
+    if not ok:
+        click.echo(f"[error] workstation not found: {ws_id}", err=True)
+        sys.exit(2)
+    click.echo(f"deleted: {ws_id}")
+
+
+@cli.group("task")
+def task_group() -> None:
+    """Manage task records via the form-style API.
+
+    The Web UI's "New task" form posts into ``app.tasks.repository`` and
+    these subcommands hit the same code path so the customer install can
+    be smoke-tested without the GUI.
+    """
+
+
+@task_group.command("add")
+@click.option("--sku", "sku_id", required=True)
+@click.option("--creative", "creative_id", required=True)
+@click.option("--segment", "segment_id", required=True)
+@click.option("--prompt", "video_prompt", required=True,
+              help="Prompt text (use shell quoting for multi-word)")
+@click.option("--target", "target_count", default=4, show_default=True, type=int,
+              help="How many videos to generate")
+@click.option("--asset", "assets", multiple=True, required=True,
+              type=click.Path(exists=True, dir_okay=False, path_type=Path),
+              help="Source image path (repeat for multiple assets)")
+@click.option("--asset-kind", "asset_kind", default="reference", show_default=True,
+              help="first_frame | last_frame | previous_segment_frame | reference | other")
+@click.option("--no-copy", is_flag=True,
+              help="Don't copy uploads into managed assets dir (use original paths)")
+@click.option("--task-id", "task_id", default=None,
+              help="Override auto-generated task id")
+@click.option("--depends-on", "depends_on", default=None)
+@click.option("--max-retry", "max_retry", default=None, type=int)
+@click.pass_context
+def task_add(
+    ctx: click.Context,
+    sku_id: str,
+    creative_id: str,
+    segment_id: str,
+    video_prompt: str,
+    target_count: int,
+    assets: tuple[Path, ...],
+    asset_kind: str,
+    no_copy: bool,
+    task_id: str | None,
+    depends_on: str | None,
+    max_retry: int | None,
+) -> None:
+    """Create one task with one or more source images via the form API."""
+    from app.db.connection import connect
+    from app.db.schema import init_schema
+    from app.tasks.repository import (
+        AssetDraft, TaskDraft, TaskRepositoryError, create_task,
+    )
+
+    cfg, _ws = _load_or_die(ctx.obj["settings_path"], ctx.obj["workstations_path"])
+    init_schema(Path(cfg.db_path))
+
+    asset_drafts = [
+        AssetDraft(path=p, kind=asset_kind, copy_into_managed_dir=not no_copy)
+        for p in assets
+    ]
+    draft = TaskDraft(
+        sku_id=sku_id,
+        creative_id=creative_id,
+        segment_id=segment_id,
+        video_prompt=video_prompt,
+        target_count=target_count,
+        assets=asset_drafts,
+        depends_on_task_id=depends_on,
+        max_retry_count=max_retry,
+        task_id=task_id,
+    )
+    with connect(cfg.db_path) as conn:
+        try:
+            new_id = create_task(
+                conn, draft,
+                default_max_retry=cfg.generation.max_retry_count,
+            )
+        except TaskRepositoryError as exc:
+            click.echo(f"[error] {exc}", err=True)
+            sys.exit(2)
+    click.echo(f"created: {new_id}")
+
+
+@task_group.command("list")
+@click.option("--status", default=None,
+              help="Filter by status: pending | running | success | retry_waiting | "
+                   "failed | download_failed | manual_review")
+@click.option("--limit", default=20, show_default=True, type=int)
+@click.pass_context
+def task_list(ctx: click.Context, status: str | None, limit: int) -> None:
+    """List recent tasks, newest first."""
+    from app.db.connection import connect
+    from app.db.schema import init_schema
+    from app.tasks.repository import list_tasks
+
+    cfg, _ws = _load_or_die(ctx.obj["settings_path"], ctx.obj["workstations_path"])
+    init_schema(Path(cfg.db_path))
+    with connect(cfg.db_path) as conn:
+        rows = list_tasks(conn, status=status, limit=limit)
+    if not rows:
+        click.echo("(no tasks)")
+        return
+    for t in rows:
+        click.echo(
+            f"  {t.task_id}  status={t.status}  "
+            f"{t.downloaded_count}/{t.target_count}  "
+            f"sku={t.sku_id}  segment={t.creative_id}/{t.segment_id}  "
+            f"prompt={t.video_prompt[:40] + ('...' if len(t.video_prompt) > 40 else '')!r}"
+        )
+
+
+@task_group.command("show")
+@click.argument("task_id")
+@click.pass_context
+def task_show(ctx: click.Context, task_id: str) -> None:
+    """Show full details for one task, including its source assets."""
+    from app.db.connection import connect
+    from app.db.schema import init_schema
+    from app.tasks.repository import get_task, get_task_assets
+
+    cfg, _ws = _load_or_die(ctx.obj["settings_path"], ctx.obj["workstations_path"])
+    init_schema(Path(cfg.db_path))
+    with connect(cfg.db_path) as conn:
+        record = get_task(conn, task_id)
+        if record is None:
+            click.echo(f"[error] task not found: {task_id}", err=True)
+            sys.exit(2)
+        assets = get_task_assets(conn, task_id)
+    click.echo(f"task_id        : {record.task_id}")
+    click.echo(f"status         : {record.status}")
+    click.echo(f"sku/creative/seg: {record.sku_id} / {record.creative_id} / {record.segment_id}")
+    click.echo(f"target / done  : {record.target_count} / {record.downloaded_count}")
+    click.echo(f"round / retry  : {record.generation_round_count} / {record.retry_count} (max {record.max_retry_count})")
+    click.echo(f"assigned ws    : {record.assigned_workstation_id or '-'}")
+    click.echo(f"depends_on     : {record.depends_on_task_id or '-'}")
+    click.echo(f"prompt         : {record.video_prompt}")
+    if record.error_type:
+        click.echo(f"error          : [{record.error_type}] {record.error_message or ''}")
+    click.echo(f"created_at     : {record.created_at}")
+    click.echo("assets:")
+    for order, path, kind in assets:
+        click.echo(f"  {order:02d}  [{kind}] {path}")
+
+
+@task_group.command("delete")
+@click.argument("task_id")
+@click.option("--force", is_flag=True, help="Allow deleting a running task")
+@click.option("--keep-assets", is_flag=True, help="Don't remove the assets dir on disk")
+@click.option("--yes", is_flag=True, help="Skip confirmation prompt")
+@click.pass_context
+def task_delete(
+    ctx: click.Context,
+    task_id: str,
+    force: bool,
+    keep_assets: bool,
+    yes: bool,
+) -> None:
+    """Delete a task row + its task_assets / task_results rows.
+
+    Output mp4 / report files in ``output_root`` are NOT removed (existing
+    data contract: persisted videos survive task-row deletion).
+    """
+    from app.db.connection import connect
+    from app.db.schema import init_schema
+    from app.tasks.repository import TaskRepositoryError, delete_task
+
+    cfg, _ws = _load_or_die(ctx.obj["settings_path"], ctx.obj["workstations_path"])
+    init_schema(Path(cfg.db_path))
+
+    if not yes:
+        click.confirm(f"delete task {task_id}?", abort=True)
+    with connect(cfg.db_path) as conn:
+        try:
+            ok = delete_task(
+                conn, task_id, force=force, remove_assets=not keep_assets,
+            )
+        except TaskRepositoryError as exc:
+            click.echo(f"[error] {exc}", err=True)
+            sys.exit(2)
+    if not ok:
+        click.echo(f"[error] task not found: {task_id}", err=True)
+        sys.exit(2)
+    click.echo(f"deleted: {task_id}")
+
+
+@cli.command("scheduler-daemon")
+@click.option("--idle-poll-sec", default=5.0, show_default=True, type=float,
+              help="Seconds to idle between empty-queue passes")
+@click.option("--mock/--no-mock", default=False,
+              help="Use mock FlowPort instead of patchright (testing only)")
+@click.pass_context
+def scheduler_daemon(ctx: click.Context, idle_poll_sec: float, mock: bool) -> None:
+    """Run the background scheduler daemon in the foreground (Ctrl-C to stop).
+
+    Useful for terminal smoke tests / debugging the same loop the FastAPI
+    server runs on a thread. The customer never invokes this directly —
+    their start.bat boots the Web server, which spawns the daemon
+    internally.
+    """
+    import signal
+    import time as _time
+
+    from app.db.connection import connect
+    from app.db.schema import init_schema
+    from app.scheduler.daemon import SchedulerDaemon
+    from app.workstations.repository import list_workstations
+    from app.workstations.sync import sync_workstations as do_sync
+
+    cfg, ws_yaml = _load_or_die(ctx.obj["settings_path"], ctx.obj["workstations_path"])
+    init_schema(Path(cfg.db_path))
+    # Bootstrap from yaml if needed (DB-as-source-of-truth, but yaml is
+    # still the dev convenience path).
+    do_sync(cfg.db_path, ws_yaml)
+    with connect(cfg.db_path) as conn:
+        ws_list = list_workstations(conn)
+    if not ws_list:
+        click.echo("[error] no workstations configured in DB", err=True)
+        sys.exit(2)
+
+    daemon = SchedulerDaemon(
+        db_path=cfg.db_path,
+        config=cfg,
+        workstations=ws_list,
+        idle_poll_sec=idle_poll_sec,
+        use_mock=mock,
+    )
+
+    def _handle_sigint(signum, frame):  # noqa: ARG001
+        click.echo("\n[ctrl-c] stopping daemon...")
+        daemon.stop(timeout=60.0)
+
+    signal.signal(signal.SIGINT, _handle_sigint)
+    daemon.start()
+    click.echo(f"daemon running with {len(ws_list)} workstation(s); "
+               f"idle_poll={idle_poll_sec}s. Ctrl-C to stop.")
+    try:
+        while daemon.is_running:
+            _time.sleep(0.5)
+    finally:
+        daemon.stop(timeout=10.0)
+    click.echo("daemon stopped")
+    snap = daemon.status()
+    click.echo(
+        f"summary: rounds={snap.rounds_completed} "
+        f"executed={snap.cumulative.executed} "
+        f"success={snap.cumulative.success} "
+        f"failed={snap.cumulative.failed}"
+    )
+
+
+@cli.command("serve")
+@click.option("--host", default="127.0.0.1", show_default=True,
+              help="Bind host (use 0.0.0.0 for LAN, 127.0.0.1 for localhost only)")
+@click.option("--port", default=8080, show_default=True, type=int)
+@click.option("--reload", is_flag=True, help="Auto-reload on code change (dev only)")
+@click.option("--no-auto-start", is_flag=True,
+              help="Don't auto-start the scheduler daemon at boot")
+@click.option("--idle-poll-sec", default=5.0, show_default=True, type=float,
+              help="Seconds the daemon idles between empty-queue passes")
+@click.pass_context
+def serve(
+    ctx: click.Context,
+    host: str,
+    port: int,
+    reload: bool,
+    no_auto_start: bool,
+    idle_poll_sec: float,
+) -> None:
+    """Run the FastAPI Web UI server.
+
+    The customer's start.bat runs this. The browser hits
+    ``http://localhost:8080/`` to reach the dashboard.
+    """
+    import uvicorn
+
+    from app.db.schema import init_schema
+    from app.workstations.sync import sync_workstations as do_sync
+
+    cfg, ws_yaml = _load_or_die(ctx.obj["settings_path"], ctx.obj["workstations_path"])
+    init_schema(Path(cfg.db_path))
+    if ws_yaml:
+        # Dev convenience — mirror yaml into DB so a fresh customer can
+        # boot from a yaml-only seed. The Web UI mutates the DB directly
+        # afterwards; subsequent boots can ignore yaml.
+        do_sync(cfg.db_path, ws_yaml)
+
+    if reload:
+        # Reload mode requires an import string, not an app instance.
+        import os
+        os.environ["FLOW_HARVESTER_SETTINGS"] = ctx.obj["settings_path"]
+        os.environ["FLOW_HARVESTER_WORKSTATIONS"] = ctx.obj["workstations_path"]
+        os.environ["FLOW_HARVESTER_AUTO_START"] = "0" if no_auto_start else "1"
+        os.environ["FLOW_HARVESTER_IDLE_POLL_SEC"] = str(idle_poll_sec)
+        uvicorn.run(
+            "app.web.bootstrap:app",
+            host=host, port=port, reload=True, log_level="info",
+        )
+        return
+
+    from app.web.server import create_app
+    app = create_app(
+        config=cfg,
+        auto_start_daemon=not no_auto_start,
+        idle_poll_sec=idle_poll_sec,
+    )
+    click.echo(f"flow-harvester serving at http://{host}:{port}")
+    uvicorn.run(app, host=host, port=port, log_level="info")
+
+
 def main() -> None:  # pragma: no cover - thin entrypoint
     cli(obj={})
 

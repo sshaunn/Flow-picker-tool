@@ -1,4 +1,4 @@
-"""Stage #1 — cross-platform app data path resolution (`app.paths`).
+"""Cross-platform app data path resolution (`app.paths`).
 
 Distinct from ``tests/test_paths.py`` which covers the in-output filename
 helpers (`app/utils/paths.py`).

@@ -84,6 +84,15 @@ CREATE TABLE IF NOT EXISTS workstations (
     cooldown_reason             TEXT,
     ban_probe_count             INTEGER NOT NULL DEFAULT 0,
     manual_note                 TEXT,
+    -- Flow project + UI preset (was in workstations.yaml; now editable
+    -- from the Web UI form so the customer never touches yaml).
+    flow_project_url            TEXT,
+    flow_mode_tab               TEXT,
+    flow_mode_subtab            TEXT,
+    flow_mode_aspect            TEXT,
+    flow_mode_output_count      INTEGER,
+    flow_mode_duration_sec      INTEGER,
+    flow_mode_model             TEXT,
     updated_at                  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -164,6 +173,14 @@ _MIGRATIONS: list[tuple[str, str]] = [
     # Per-column ALTER TABLE migrations. Re-running on a DB that already
     # has the column raises "duplicate column name" — caught and ignored.
     ("workstations", "ban_probe_count INTEGER NOT NULL DEFAULT 0"),
+    # DB-as-source-of-truth for flow_project_url + flow_mode.
+    ("workstations", "flow_project_url TEXT"),
+    ("workstations", "flow_mode_tab TEXT"),
+    ("workstations", "flow_mode_subtab TEXT"),
+    ("workstations", "flow_mode_aspect TEXT"),
+    ("workstations", "flow_mode_output_count INTEGER"),
+    ("workstations", "flow_mode_duration_sec INTEGER"),
+    ("workstations", "flow_mode_model TEXT"),
 ]
 
 

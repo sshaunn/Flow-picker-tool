@@ -14,7 +14,17 @@ from pathlib import Path
 from typing import Iterator
 
 
-def connect(db_path: Path | str) -> sqlite3.Connection:
+def connect(
+    db_path: Path | str, *, check_same_thread: bool = True
+) -> sqlite3.Connection:
+    """Open a SQLite connection with FK + WAL + autocommit defaults.
+
+    ``check_same_thread`` defaults to True (sqlite3 standard). The Web
+    layer opens with ``check_same_thread=False`` because FastAPI can hop
+    between threads inside a single request lifecycle (sync Depends fires
+    on the threadpool, ``async def`` endpoints on the event loop). The
+    connection is per-request so no other thread observes it.
+    """
     path = Path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(
@@ -22,6 +32,7 @@ def connect(db_path: Path | str) -> sqlite3.Connection:
         isolation_level=None,  # autocommit; we manage transactions explicitly
         detect_types=sqlite3.PARSE_DECLTYPES,
         timeout=30.0,
+        check_same_thread=check_same_thread,
     )
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")

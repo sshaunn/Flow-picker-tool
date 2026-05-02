@@ -16,7 +16,7 @@ Layout:
 Subdirs / files (under the resolved app_data_dir):
   profiles/                 per-workstation Chrome user-data dirs
   logs/                     scheduler.log + worker_<id>.log + errors.log
-  config/                   user-editable settings (Stage #2 will use this)
+  config/                   user-editable settings
   flow_harvester.sqlite     main DB
 
 Output videos (``output_root``) are kept SEPARATE from app_data_dir on
@@ -95,12 +95,23 @@ def config_dir() -> Path:
     return app_data_dir() / "config"
 
 
+def assets_dir() -> Path:
+    """Where uploaded source images for tasks live.
+
+    The Web UI form copies the customer's uploaded image into
+    ``assets_dir() / <task_id> / <order>_<original_name>`` so the worker's
+    later upload step has a stable path even after the browser POST is
+    forgotten.
+    """
+    return app_data_dir() / "assets"
+
+
 def workstation_profile_path(workstation_id: str) -> Path:
     """Resolve the on-disk Chrome profile dir for a given workstation id.
 
-    Stage #2 (workstations DB CRUD) will store absolute paths produced by
-    this helper instead of the legacy ``./profiles/workstation_X`` strings
-    in ``config/workstations.yaml``.
+    Used when creating a new workstation record so the profile path is
+    stored as an absolute platform-specific location instead of the
+    legacy ``./profiles/workstation_X`` relative form.
     """
     if not workstation_id or "/" in workstation_id or "\\" in workstation_id:
         raise ValueError(f"invalid workstation id: {workstation_id!r}")
@@ -114,5 +125,6 @@ def ensure_app_dirs() -> None:
     runs on a fresh customer machine don't fail with ``ENOENT`` halfway
     through opening a log file.
     """
-    for d in (app_data_dir(), profiles_dir(), logs_dir(), config_dir(), output_root()):
+    for d in (app_data_dir(), profiles_dir(), logs_dir(), config_dir(),
+              assets_dir(), output_root()):
         d.mkdir(parents=True, exist_ok=True)
