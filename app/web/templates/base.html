@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Flow Harvester{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <style>
+    body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+  <header class="bg-white border-b border-slate-200">
+    <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+      <a href="/" class="text-lg font-semibold tracking-tight text-slate-900 hover:text-slate-700">
+        Flow Harvester
+      </a>
+      <nav class="flex gap-4 text-sm">
+        {% set page = active_page or '' %}
+        <a href="/" class="{% if page == 'dashboard' %}text-blue-600 font-medium{% else %}text-slate-600 hover:text-slate-900{% endif %}">Dashboard</a>
+        <a href="/workstations" class="{% if page == 'workstations' %}text-blue-600 font-medium{% else %}text-slate-600 hover:text-slate-900{% endif %}">Workstations</a>
+        <a href="/tasks" class="{% if page == 'tasks' %}text-blue-600 font-medium{% else %}text-slate-600 hover:text-slate-900{% endif %}">Tasks</a>
+        <a href="/tasks/new" class="{% if page == 'new_task' %}text-blue-600 font-medium{% else %}text-slate-600 hover:text-slate-900{% endif %}">+ New Task</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-4 py-6">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="max-w-6xl mx-auto px-4 py-6 text-xs text-slate-400">
+    Flow Harvester &middot; localhost only
+  </footer>
+</body>
+</html>

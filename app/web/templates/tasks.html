@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% from "_macros.html" import task_status_badge, progress_bar %}
+{% block title %}Tasks · Flow Harvester{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-xl font-semibold">Tasks</h1>
+  <a href="/tasks/new" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">
+    + New task
+  </a>
+</div>
+
+<div class="mb-4 flex gap-2 text-sm">
+  {% set f = current_status or '' %}
+  <a href="/tasks" class="px-3 py-1 rounded {% if not f %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-700 hover:bg-slate-50{% endif %}">All</a>
+  {% for s in ['pending', 'running', 'success', 'retry_waiting', 'failed', 'manual_review'] %}
+    <a href="/tasks?status={{ s }}"
+       class="px-3 py-1 rounded {% if f == s %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-700 hover:bg-slate-50{% endif %}">
+      {{ s }}
+    </a>
+  {% endfor %}
+</div>
+
+{% if tasks %}
+<div class="bg-white rounded-lg border border-slate-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
+      <tr>
+        <th class="px-4 py-2 text-left">Task</th>
+        <th class="px-4 py-2 text-left">Status</th>
+        <th class="px-4 py-2 text-left w-48">Progress</th>
+        <th class="px-4 py-2 text-left">Workstation</th>
+        <th class="px-4 py-2 text-left">Prompt</th>
+        <th class="px-4 py-2"></th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-slate-100">
+      {% for task in tasks %}
+      <tr>
+        <td class="px-4 py-3">
+          <a href="/tasks/{{ task.task_id }}" class="font-mono text-xs text-slate-700 hover:underline">
+            {{ task.task_id }}
+          </a>
+          <div class="text-xs text-slate-500 mt-0.5">{{ task.creative_id }}/{{ task.segment_id }}</div>
+        </td>
+        <td class="px-4 py-3">{{ task_status_badge(task.status) }}</td>
+        <td class="px-4 py-3">{{ progress_bar(task.downloaded_count, task.target_count) }}</td>
+        <td class="px-4 py-3 text-xs text-slate-600">{{ task.assigned_workstation_id or '—' }}</td>
+        <td class="px-4 py-3 text-xs text-slate-600 max-w-xs truncate">{{ task.video_prompt }}</td>
+        <td class="px-4 py-3 text-right">
+          <button hx-delete="/api/tasks/{{ task.task_id }}"
+                  hx-confirm="Delete task {{ task.task_id }}?"
+                  hx-on::after-request="if (event.detail.successful) window.location.reload()"
+                  class="text-red-600 text-xs hover:underline">
+            delete
+          </button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="bg-white rounded-lg border border-slate-200 p-8 text-center">
+  <p class="text-slate-500">{% if current_status %}No tasks with status "{{ current_status }}".{% else %}No tasks yet.{% endif %}</p>
+  <a href="/tasks/new" class="inline-block mt-3 px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">
+    + Create a task
+  </a>
+</div>
+{% endif %}
+{% endblock %}

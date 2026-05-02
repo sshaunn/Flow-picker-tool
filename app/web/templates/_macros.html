@@ -1,0 +1,45 @@
+{# Reusable bits — status badges and progress bars. #}
+
+{% macro ws_status_badge(status) -%}
+  {%- if status == 'healthy' -%}
+    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">healthy</span>
+  {%- elif status == 'busy' -%}
+    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">busy</span>
+  {%- elif status == 'cooldown' -%}
+    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">cooldown</span>
+  {%- elif status == 'manual_check' -%}
+    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">manual_check</span>
+  {%- elif status == 'disabled' -%}
+    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-200 text-slate-700">disabled</span>
+  {%- else -%}
+    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700">{{ status }}</span>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro task_status_badge(status) -%}
+  {%- if status == 'success' -%}
+    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">success</span>
+  {%- elif status == 'pending' -%}
+    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700">pending</span>
+  {%- elif status == 'running' -%}
+    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">running</span>
+  {%- elif status == 'retry_waiting' -%}
+    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">retry_waiting</span>
+  {%- elif status in ('failed', 'download_failed') -%}
+    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">{{ status }}</span>
+  {%- elif status == 'manual_review' -%}
+    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">manual_review</span>
+  {%- else -%}
+    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700">{{ status }}</span>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro progress_bar(done, total) -%}
+  {% set pct = (done / total * 100) if total else 0 %}
+  <div class="flex items-center gap-2">
+    <div class="flex-1 bg-slate-200 rounded-full h-2 overflow-hidden">
+      <div class="bg-blue-500 h-2 rounded-full transition-all" style="width: {{ pct|round(0) }}%"></div>
+    </div>
+    <span class="text-xs text-slate-500 tabular-nums">{{ done }}/{{ total }}</span>
+  </div>
+{%- endmacro %}

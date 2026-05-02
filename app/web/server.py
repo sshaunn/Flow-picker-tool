@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import paths as app_paths
@@ -24,26 +23,11 @@ from app.config.loader import AppConfig
 from app.db.connection import connect
 from app.db.schema import init_schema
 from app.scheduler.daemon import SchedulerDaemon
+from app.web.routes import pages as page_routes
 from app.web.routes import scheduler as scheduler_routes
 from app.web.routes import tasks as tasks_routes
 from app.web.routes import workstations as ws_routes
 from app.workstations.repository import list_workstations
-
-
-_DASHBOARD_PLACEHOLDER = """\
-<!DOCTYPE html>
-<html><head><meta charset='utf-8'><title>Flow Harvester</title></head>
-<body style='font-family: ui-sans-serif, system-ui; padding: 2rem;'>
-  <h1>Flow Harvester</h1>
-  <p>Server is running. The dashboard UI is rendered from the API endpoints below.</p>
-  <ul>
-    <li><a href='/api/workstations'>GET /api/workstations</a></li>
-    <li><a href='/api/tasks'>GET /api/tasks</a></li>
-    <li><a href='/api/scheduler/status'>GET /api/scheduler/status</a></li>
-    <li><a href='/docs'>OpenAPI / Swagger</a></li>
-  </ul>
-</body></html>
-"""
 
 
 def _make_lifespan(*, auto_start_daemon: bool):
@@ -114,14 +98,11 @@ def create_app(
     app.include_router(ws_routes.router)
     app.include_router(tasks_routes.router)
     app.include_router(scheduler_routes.router)
+    app.include_router(page_routes.router)
 
     static_dir = Path(__file__).parent / "static"
     if static_dir.exists():
         app.mount("/static", StaticFiles(directory=static_dir), name="static")
-
-    @app.get("/", response_class=HTMLResponse, include_in_schema=False)
-    def index() -> str:
-        return _DASHBOARD_PLACEHOLDER
 
     @app.get("/healthz", include_in_schema=False)
     def healthz() -> dict:

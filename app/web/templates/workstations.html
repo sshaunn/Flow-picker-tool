@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% from "_macros.html" import ws_status_badge %}
+{% block title %}Workstations · Flow Harvester{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-xl font-semibold">Workstations</h1>
+  <a href="/workstations/new" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">
+    + Add workstation
+  </a>
+</div>
+
+{% if workstations %}
+<div class="bg-white rounded-lg border border-slate-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
+      <tr>
+        <th class="px-4 py-2 text-left">ID</th>
+        <th class="px-4 py-2 text-left">Account</th>
+        <th class="px-4 py-2 text-left">Status</th>
+        <th class="px-4 py-2 text-left">Daily limit</th>
+        <th class="px-4 py-2 text-left">Project URL</th>
+        <th class="px-4 py-2"></th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-slate-100">
+      {% for ws in workstations %}
+      <tr>
+        <td class="px-4 py-3 font-medium">{{ ws.id }}</td>
+        <td class="px-4 py-3">{{ ws.account_label }}</td>
+        <td class="px-4 py-3">{{ ws_status_badge(ws.status) }}</td>
+        <td class="px-4 py-3 tabular-nums">{{ ws.daily_task_limit }}</td>
+        <td class="px-4 py-3 text-xs text-slate-500 max-w-xs truncate">
+          {% if ws.flow_project_url %}
+            <a href="{{ ws.flow_project_url }}" target="_blank" class="text-blue-600 hover:underline">{{ ws.flow_project_url }}</a>
+          {% else %}
+            <span class="italic">not set</span>
+          {% endif %}
+        </td>
+        <td class="px-4 py-3 text-right">
+          <a href="/workstations/{{ ws.id }}" class="text-blue-600 text-xs hover:underline mr-3">details</a>
+          <button hx-delete="/api/workstations/{{ ws.id }}"
+                  hx-confirm="Delete {{ ws.id }}? Task history that references this id will become orphaned."
+                  hx-on::after-request="if (event.detail.successful) window.location.reload()"
+                  class="text-red-600 text-xs hover:underline">
+            delete
+          </button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="bg-white rounded-lg border border-slate-200 p-8 text-center">
+  <p class="text-slate-500">No workstations configured yet.</p>
+  <a href="/workstations/new" class="inline-block mt-3 px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">
+    + Add the first workstation
+  </a>
+</div>
+{% endif %}
+{% endblock %}

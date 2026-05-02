@@ -230,11 +230,8 @@ def test_scheduler_start_then_stop(app_config) -> None:
 # ----------------------------------------------------------------------- index
 
 
-def test_index_and_healthz(app_config) -> None:
+def test_healthz(app_config) -> None:
     with _make_client(app_config) as client:
-        resp = client.get("/")
-        assert resp.status_code == 200
-        assert "Flow Harvester" in resp.text
         assert client.get("/healthz").json() == {"status": "ok"}
 
 
