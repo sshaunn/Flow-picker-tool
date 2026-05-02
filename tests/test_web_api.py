@@ -110,6 +110,25 @@ def test_workstation_delete(app_config) -> None:
         assert client.get("/api/workstations/WS_D").status_code == 404
 
 
+def test_workstation_delete_wipes_managed_profile_dir(app_config, tmp_path: Path) -> None:
+    """API delete must rm -rf the Chrome profile when it lives under the
+    managed dir, so the next "Add + Login" starts from a clean Google
+    session — that's what the customer expects when they say "delete"."""
+    profile = app_paths.workstation_profile_path("WS_WIPE_API")
+    profile.mkdir(parents=True, exist_ok=True)
+    (profile / "Cookies").write_bytes(b"google-session-token")
+
+    with _make_client(app_config) as client:
+        client.post("/api/workstations", json={
+            "id": "WS_WIPE_API", "account_label": "a",
+            "browser_profile_path": str(profile),
+            "daily_task_limit": 5,
+        })
+        resp = client.delete("/api/workstations/WS_WIPE_API")
+    assert resp.status_code == 204
+    assert not profile.exists()
+
+
 # ----------------------------------------------------------------------- tasks
 
 

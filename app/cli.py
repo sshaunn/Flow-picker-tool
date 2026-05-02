@@ -854,9 +854,13 @@ def workstation_update(
 
 @workstation_group.command("delete")
 @click.option("--id", "ws_id", required=True, help="Workstation id to delete")
+@click.option("--wipe-profile", is_flag=True,
+              help="Also delete the Chrome profile dir on disk so the next "
+                   "login starts from scratch. Only wipes paths under the "
+                   "managed profiles dir; custom paths are left alone.")
 @click.option("--yes", is_flag=True, help="Skip confirmation prompt")
 @click.pass_context
-def workstation_delete(ctx: click.Context, ws_id: str, yes: bool) -> None:
+def workstation_delete(ctx: click.Context, ws_id: str, wipe_profile: bool, yes: bool) -> None:
     """Remove a workstation row. Use carefully — task history that references
     this id will become orphaned (the FK is informational, not enforced)."""
     from app.db.connection import connect
@@ -867,13 +871,16 @@ def workstation_delete(ctx: click.Context, ws_id: str, yes: bool) -> None:
     init_schema(Path(cfg.db_path))
 
     if not yes:
-        click.confirm(f"delete workstation {ws_id}?", abort=True)
+        prompt = f"delete workstation {ws_id}"
+        if wipe_profile:
+            prompt += " and wipe its Chrome profile dir"
+        click.confirm(prompt + "?", abort=True)
     with connect(cfg.db_path) as conn:
-        ok = delete_workstation(conn, ws_id)
+        ok = delete_workstation(conn, ws_id, wipe_profile=wipe_profile)
     if not ok:
         click.echo(f"[error] workstation not found: {ws_id}", err=True)
         sys.exit(2)
-    click.echo(f"deleted: {ws_id}")
+    click.echo(f"deleted: {ws_id}" + (" (profile wiped)" if wipe_profile else ""))
 
 
 @cli.group("task")

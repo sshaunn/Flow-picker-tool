@@ -23,11 +23,18 @@ Usage:
 
 from __future__ import annotations
 
+import logging
+import shutil
 import sqlite3
+from pathlib import Path
 from typing import Any
 
+from app import paths as app_paths
 from app.config.loader import FlowModeSpec, WorkstationConfig
 from app.db.connection import transaction
+
+
+_log = logging.getLogger("flow_harvester.workstations")
 
 
 # Columns that describe user-editable workstation *config* (as opposed to
@@ -241,14 +248,63 @@ def update_workstation_config(
         conn.execute(f"UPDATE workstations SET {set_sql} WHERE id = ?", params)
 
 
-def delete_workstation(conn: sqlite3.Connection, ws_id: str) -> bool:
+def _is_managed_profile(path: Path) -> bool:
+    """True if ``path`` lives under the app's managed profiles dir.
+
+    Guards against rm-rf'ing an arbitrary directory the operator may have
+    pointed at via a custom ``browser_profile_path``. Only the customer-
+    facing platform-default location (``paths.profiles_dir()``) qualifies.
+    """
+    try:
+        managed = app_paths.profiles_dir().resolve()
+        candidate = path.resolve()
+    except (OSError, RuntimeError):
+        return False
+    if candidate == managed:
+        return False
+    return managed in candidate.parents
+
+
+def delete_workstation(
+    conn: sqlite3.Connection,
+    ws_id: str,
+    *,
+    wipe_profile: bool = False,
+) -> bool:
     """Delete a workstation row. Returns True if a row was removed.
 
     Caller should detach any running tasks first — this DOES NOT cascade to
     ``tasks.assigned_workstation_id`` because that would silently break a
     real in-progress job. The Web UI must refuse delete when the WS has
     tasks in ``running``/``retry_waiting``.
+
+    When ``wipe_profile`` is True AND the workstation's
+    ``browser_profile_path`` lives under ``paths.profiles_dir()``, the
+    Chrome profile dir on disk is also removed. Profile paths outside the
+    managed dir are left alone (with a warning log) so a custom path the
+    operator typed in by hand is never deleted by accident.
     """
+    profile_to_wipe: Path | None = None
+    if wipe_profile:
+        row = conn.execute(
+            "SELECT browser_profile_path FROM workstations WHERE id = ?",
+            (ws_id,),
+        ).fetchone()
+        if row is not None:
+            candidate = Path(row["browser_profile_path"])
+            if _is_managed_profile(candidate):
+                profile_to_wipe = candidate
+            else:
+                _log.warning(
+                    "skipping profile wipe for %s: %s is not under managed "
+                    "profiles dir; remove it manually if needed",
+                    ws_id, candidate,
+                )
+
     with transaction(conn):
         cursor = conn.execute("DELETE FROM workstations WHERE id = ?", (ws_id,))
-    return cursor.rowcount > 0
+    deleted = cursor.rowcount > 0
+
+    if deleted and profile_to_wipe is not None:
+        shutil.rmtree(profile_to_wipe, ignore_errors=True)
+    return deleted

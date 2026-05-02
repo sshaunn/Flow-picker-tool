@@ -190,6 +190,64 @@ def test_delete_workstation(db_path: Path) -> None:
         assert delete_workstation(conn, "WS_A") is False
 
 
+def test_delete_workstation_wipe_profile_inside_managed_dir(
+    db_path: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """wipe_profile=True must rm -rf the profile dir when it's under the
+    platform-managed profiles dir (the customer's normal case)."""
+    from app import paths as app_paths
+
+    monkeypatch.setenv(app_paths._ENV_DATA_DIR, str(tmp_path / "data"))
+    profile = app_paths.workstation_profile_path("WS_WIPE")
+    profile.mkdir(parents=True)
+    (profile / "Cookies").write_bytes(b"google-session-token")
+
+    with connect(db_path) as conn:
+        create_workstation(conn, _make_ws("WS_WIPE", profile=str(profile)))
+        ok = delete_workstation(conn, "WS_WIPE", wipe_profile=True)
+    assert ok is True
+    assert not profile.exists(), "managed profile dir should be wiped"
+
+
+def test_delete_workstation_wipe_profile_skips_unmanaged_path(
+    db_path: Path, tmp_path: Path, monkeypatch, caplog
+) -> None:
+    """wipe_profile=True must NOT touch a custom profile path the operator
+    typed in (e.g. /Users/foo/Documents/something) — that's their data."""
+    from app import paths as app_paths
+    import logging
+
+    monkeypatch.setenv(app_paths._ENV_DATA_DIR, str(tmp_path / "data"))
+    custom_profile = tmp_path / "elsewhere"
+    custom_profile.mkdir()
+    (custom_profile / "Cookies").write_bytes(b"keep-me")
+
+    with connect(db_path) as conn:
+        create_workstation(conn, _make_ws("WS_CUSTOM", profile=str(custom_profile)))
+        with caplog.at_level(logging.WARNING, logger="flow_harvester.workstations"):
+            ok = delete_workstation(conn, "WS_CUSTOM", wipe_profile=True)
+    assert ok is True
+    assert custom_profile.exists()
+    assert (custom_profile / "Cookies").exists()
+    assert any("skipping profile wipe" in rec.message for rec in caplog.records)
+
+
+def test_delete_workstation_default_does_not_wipe(
+    db_path: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """Default delete (without explicit wipe_profile) preserves files on disk."""
+    from app import paths as app_paths
+
+    monkeypatch.setenv(app_paths._ENV_DATA_DIR, str(tmp_path / "data"))
+    profile = app_paths.workstation_profile_path("WS_KEEP")
+    profile.mkdir(parents=True)
+
+    with connect(db_path) as conn:
+        create_workstation(conn, _make_ws("WS_KEEP", profile=str(profile)))
+        delete_workstation(conn, "WS_KEEP")
+    assert profile.exists(), "default delete must not touch the profile dir"
+
+
 def test_schema_migration_adds_new_columns_to_existing_db(tmp_path: Path) -> None:
     """init_schema is idempotent across the new flow_* migrations."""
     from app.db.schema import init_schema

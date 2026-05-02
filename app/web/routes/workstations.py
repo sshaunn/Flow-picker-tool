@@ -9,7 +9,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from app import paths as app_paths
@@ -174,6 +174,20 @@ def update_route(
 
 
 @router.delete("/{ws_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_route(ws_id: str, conn: sqlite3.Connection = Depends(get_db_conn)) -> None:
-    if not delete_workstation(conn, ws_id):
+def delete_route(
+    ws_id: str,
+    request: Request,
+    conn: sqlite3.Connection = Depends(get_db_conn),
+) -> None:
+    """Delete a workstation. Closes any open login Chrome window for this
+    WS and wipes the on-disk profile so the next "Add" + "Login" starts
+    clean (no leftover Google session)."""
+    # Cancel + drop any in-flight login session before we delete the row.
+    registry = getattr(request.app.state, "login_sessions", None)
+    if registry is not None:
+        existing = registry.get(ws_id)
+        if existing is not None:
+            existing.cancel(timeout=5.0)
+            registry.remove(ws_id)
+    if not delete_workstation(conn, ws_id, wipe_profile=True):
         raise HTTPException(status_code=404, detail=f"workstation not found: {ws_id}")
