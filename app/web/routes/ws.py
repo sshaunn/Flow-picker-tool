@@ -115,19 +115,20 @@ def _task_results_for_render(conn, task_id: str, output_root: _PathlibPath) -> l
     return out
 
 
-def _render_task_detail(app, task_id: str) -> str | None:
+def _render_task_status(app, task_id: str) -> str | None:
+    """Render only the status / progress block — fast-changing data the
+    WebSocket pushes every tick. Excludes the <video> grid so a clip the
+    customer is previewing isn't torn down by the swap."""
     cfg = app.state.config
     conn = connect(cfg.db_path, check_same_thread=False)
     try:
         record = get_task(conn, task_id)
         if record is None:
             return None
-        assets = get_task_assets(conn, task_id)
-        results = _task_results_for_render(conn, task_id, _PathlibPath(cfg.output_root))
     finally:
         conn.close()
-    template = _templates.get_template("_task_detail_grid.html")
-    return template.render(task=record, assets=assets, results=results)
+    template = _templates.get_template("_task_detail_status.html")
+    return template.render(task=record)
 
 
 @router.websocket("/ws/task/{task_id}")
@@ -142,7 +143,7 @@ async def task_detail_ws(websocket: WebSocket, task_id: str) -> None:
     interval = getattr(app.state, "push_interval_sec", 2.0)
     try:
         while True:
-            html = _render_task_detail(app, task_id)
+            html = _render_task_status(app, task_id)
             if html is None:
                 await websocket.close()
                 return

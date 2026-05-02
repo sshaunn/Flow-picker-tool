@@ -15,9 +15,39 @@
   </button>
 </div>
 
-<div id="task-grid">
-  {% include "_task_detail_grid.html" %}
+{# Frequently-changing status block — pushed via WebSocket every 2s. #}
+<div id="task-status">
+  {% include "_task_detail_status.html" %}
 </div>
+
+{# Video grid — server-rendered on first load; polled but only swapped
+   when the tile count grew so existing <video> elements keep their
+   playback state. #}
+<section id="task-videos" class="bg-white rounded-lg border border-slate-200 p-5 mb-6">
+  {% include "_task_detail_videos.html" %}
+</section>
+
+<section class="bg-white rounded-lg border border-slate-200 p-5 mb-6">
+  <h2 class="text-base font-semibold mb-3">Prompt</h2>
+  <pre class="whitespace-pre-wrap text-sm font-mono bg-slate-50 p-3 rounded border border-slate-200">{{ task.video_prompt }}</pre>
+</section>
+
+<section class="bg-white rounded-lg border border-slate-200 p-5 mb-6">
+  <h2 class="text-base font-semibold mb-3">Source assets</h2>
+  {% if assets %}
+    <ul class="space-y-2 text-sm">
+      {% for order, path, kind in assets %}
+        <li class="flex items-center gap-3">
+          <span class="text-xs text-slate-400 tabular-nums w-6">{{ order }}.</span>
+          <span class="text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700">{{ kind }}</span>
+          <span class="font-mono text-xs text-slate-600 break-all">{{ path }}</span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="text-sm text-slate-500">No assets attached.</p>
+  {% endif %}
+</section>
 
 <section class="bg-white rounded-lg border border-slate-200 p-5 mb-6">
   <div class="flex items-center justify-between mb-2">
@@ -33,17 +63,18 @@
 
 <script>
 (() => {
-  const grid = document.getElementById('task-grid');
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const taskId = {{ task.task_id|tojson }};
-  const url = `${proto}//${location.host}/ws/task/${encodeURIComponent(taskId)}`;
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+
+  // Status block via WebSocket — replaces #task-status every push tick.
+  const statusEl = document.getElementById('task-status');
   let backoff = 1000;
   const connect = () => {
-    const ws = new WebSocket(url);
+    const ws = new WebSocket(`${proto}//${location.host}/ws/task/${encodeURIComponent(taskId)}`);
     ws.onopen = () => { backoff = 1000; };
     ws.onmessage = (ev) => {
-      grid.innerHTML = ev.data;
-      if (window.htmx) htmx.process(grid);
+      statusEl.innerHTML = ev.data;
+      if (window.htmx) htmx.process(statusEl);
     };
     ws.onclose = () => {
       setTimeout(connect, backoff);
@@ -52,6 +83,28 @@
     ws.onerror = () => ws.close();
   };
   connect();
+
+  // Video grid — fetch every 5s, swap only when the tile count grew so
+  // a clip the customer is previewing isn't restarted by every poll.
+  const videosEl = document.getElementById('task-videos');
+  const tileCount = () => videosEl.querySelectorAll('[data-video-tile]').length;
+  let lastCount = tileCount();
+  const pollVideos = async () => {
+    try {
+      const resp = await fetch(`/tasks/${encodeURIComponent(taskId)}/videos/partial`);
+      if (!resp.ok) return;
+      const html = await resp.text();
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      const newCount = tmp.querySelectorAll('[data-video-tile]').length;
+      if (newCount !== lastCount) {
+        videosEl.innerHTML = html;
+        if (window.htmx) htmx.process(videosEl);
+        lastCount = newCount;
+      }
+    } catch (_) { /* ignore transient fetch errors */ }
+  };
+  setInterval(pollVideos, 5000);
 })();
 </script>
 {% endblock %}

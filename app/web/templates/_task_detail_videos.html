@@ -1,0 +1,30 @@
+{# Generated-video grid. Re-rendered server-side and only swapped into
+   the page when its tile count grew, so existing <video> elements keep
+   their playback state across polls. #}
+
+<div class="flex items-center justify-between mb-3">
+  <h2 class="text-base font-semibold">Generated videos ({{ results|length }})</h2>
+  {% if results %}
+    <button type="button"
+            onclick="fetch('/api/tasks/{{ task.task_id }}/open-folder', {method: 'POST'})"
+            class="text-xs text-blue-600 hover:underline">
+      open folder
+    </button>
+  {% endif %}
+</div>
+{% if results %}
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+    {% for r in results %}
+      <div class="border border-slate-200 rounded overflow-hidden" data-video-tile>
+        <video controls preload="metadata" class="w-full bg-slate-900"
+               src="/files/{{ r.rel_path }}"></video>
+        <div class="px-2 py-1.5 text-xs text-slate-600 flex items-center justify-between">
+          <span class="font-mono">round {{ r.round }} · seq {{ r.seq }}</span>
+          <a href="/files/{{ r.rel_path }}" download class="text-blue-600 hover:underline">download</a>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+{% else %}
+  <p class="text-sm text-slate-500">No videos yet — they'll show up here as the worker downloads them.</p>
+{% endif %}

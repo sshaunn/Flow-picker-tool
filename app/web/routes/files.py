@@ -14,8 +14,9 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
+from fastapi.templating import Jinja2Templates
 
 from app.config.loader import AppConfig
 from app.db.connection import connect
@@ -25,6 +26,9 @@ from app.web.dependencies import get_config
 
 
 router = APIRouter(tags=["files"])
+
+_TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
+_templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
 
 def _resolve_under(root: Path, rel_path: str) -> Path:
@@ -137,6 +141,31 @@ def _read_worker_log_tail(
         return ""
     matched = [ln for ln in lines if task_id in ln]
     return "".join(matched[-max_lines:])
+
+
+@router.get("/tasks/{task_id}/videos/partial",
+            response_class=HTMLResponse, include_in_schema=False)
+def task_videos_partial(
+    task_id: str,
+    request: Request,
+    cfg: AppConfig = Depends(get_config),
+) -> HTMLResponse:
+    """Re-render the video grid. Client-side JS swaps it into the page
+    only when the tile count grew, so existing <video> elements keep
+    their playback state across polls."""
+    from app.web.routes.ws import _task_results_for_render
+    conn = connect(cfg.db_path, check_same_thread=False)
+    try:
+        record = get_task(conn, task_id)
+        if record is None:
+            raise HTTPException(status_code=404)
+        results = _task_results_for_render(conn, task_id, Path(cfg.output_root))
+    finally:
+        conn.close()
+    return _templates.TemplateResponse(
+        request, "_task_detail_videos.html",
+        {"task": record, "results": results},
+    )
 
 
 @router.get("/tasks/{task_id}/log/partial",

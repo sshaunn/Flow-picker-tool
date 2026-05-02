@@ -1,0 +1,55 @@
+{% from "_macros.html" import task_status_badge, progress_bar %}
+{# Frequently-changing status + progress block. Pushed via /ws/task/{id}
+   every push_interval_sec. Deliberately excludes the <video> grid so
+   the WS swap doesn't tear down a clip the customer is previewing. #}
+
+<section class="bg-white rounded-lg border border-slate-200 p-5 mb-6">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="text-base font-semibold">Status</h2>
+    {{ task_status_badge(task.status) }}
+  </div>
+  <div class="mb-4">{{ progress_bar(task.downloaded_count, task.target_count) }}</div>
+  <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
+    <div>
+      <dt class="text-xs text-slate-500">SKU / creative / segment</dt>
+      <dd class="mt-0.5">{{ task.sku_id }} / {{ task.creative_id }} / {{ task.segment_id }}</dd>
+    </div>
+    <div>
+      <dt class="text-xs text-slate-500">Assigned workstation</dt>
+      <dd class="mt-0.5">
+        {% if task.assigned_workstation_id %}
+          <a href="/workstations/{{ task.assigned_workstation_id }}" class="text-blue-600 hover:underline">{{ task.assigned_workstation_id }}</a>
+        {% else %}
+          <span class="text-slate-500">—</span>
+        {% endif %}
+      </dd>
+    </div>
+    <div>
+      <dt class="text-xs text-slate-500">Rounds / retries</dt>
+      <dd class="mt-0.5 tabular-nums">{{ task.generation_round_count }} rounds · {{ task.retry_count }}/{{ task.max_retry_count }} retries</dd>
+    </div>
+    <div>
+      <dt class="text-xs text-slate-500">Created at</dt>
+      <dd class="mt-0.5 text-xs text-slate-700">{{ task.created_at }}</dd>
+    </div>
+    {% if task.depends_on_task_id %}
+    <div class="sm:col-span-2">
+      <dt class="text-xs text-slate-500">Depends on</dt>
+      <dd class="mt-0.5">
+        <a href="/tasks/{{ task.depends_on_task_id }}" class="text-blue-600 hover:underline font-mono text-xs">
+          {{ task.depends_on_task_id }}
+        </a>
+      </dd>
+    </div>
+    {% endif %}
+    {% if task.error_type %}
+    <div class="sm:col-span-2">
+      <dt class="text-xs text-slate-500">Last error</dt>
+      <dd class="mt-0.5 px-3 py-2 bg-red-50 text-red-800 text-xs rounded border border-red-200">
+        <span class="font-medium">[{{ task.error_type }}]</span>
+        {{ task.error_message or '' }}
+      </dd>
+    </div>
+    {% endif %}
+  </dl>
+</section>

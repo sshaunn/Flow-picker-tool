@@ -166,13 +166,24 @@ def test_log_partial_404_for_unknown_task(app_config) -> None:
 # ----------------------------------------------------- /ws/task
 
 
-def test_task_detail_ws_pushes_grid_fragment(app_config) -> None:
+def test_task_detail_ws_pushes_status_fragment(app_config) -> None:
     with _client(app_config) as client:
         task_id, _ = _make_task_with_result(client, app_config, suffix="ws")
         with client.websocket_connect(f"/ws/task/{task_id}") as ws:
             html = ws.receive_text()
-    assert "Generated videos" in html
+    # WS pushes only the status partial — videos live in a separately
+    # polled section so previewing a clip isn't interrupted by every tick.
     assert "Status" in html
+    assert "<video" not in html
+
+
+def test_videos_partial_renders_tiles(app_config) -> None:
+    with _client(app_config) as client:
+        task_id, _ = _make_task_with_result(client, app_config, suffix="vp")
+        resp = client.get(f"/tasks/{task_id}/videos/partial")
+    assert resp.status_code == 200
+    assert "<video" in resp.text
+    assert "data-video-tile" in resp.text
 
 
 def test_task_detail_ws_closes_when_task_deleted(app_config) -> None:
