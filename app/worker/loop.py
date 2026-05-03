@@ -115,6 +115,7 @@ def execute_task(
     config: GenerationSettings,
     output_root: Path,
     run_date: date,
+    captcha_action: str = "pause",
 ) -> WorkerOutcome:
     seg_dir = ensure_segment_layout(
         output_root=output_root,
@@ -342,7 +343,17 @@ def execute_task(
                 final_status = "success"
                 workstation_outcome = "healthy"
             elif workstation_outcome == "manual_check":
-                final_status = "retry_waiting"
+                # Day mode: stay in retry_waiting so the operator can act
+                # (login expired / captcha) and the same task picks up
+                # again. Night mode: there is no operator — flip the task
+                # to manual_review so it shows up next morning instead of
+                # blocking the queue while the WS is parked.
+                if captcha_action == "skip" and last_error_type in {
+                    "captcha_or_verification", "login_required",
+                }:
+                    final_status = "manual_review"
+                else:
+                    final_status = "retry_waiting"
             elif workstation_outcome == "page_failure":
                 final_status = "retry_waiting"
             elif round_count >= config.max_round_per_task:

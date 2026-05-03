@@ -16,13 +16,32 @@
       <a href="/" class="text-lg font-semibold tracking-tight text-slate-900 hover:text-slate-700">
         Flow Harvester
       </a>
-      <nav class="flex gap-4 text-sm">
-        {% set page = active_page or '' %}
-        <a href="/" class="{% if page == 'dashboard' %}text-blue-600 font-medium{% else %}text-slate-600 hover:text-slate-900{% endif %}">总览</a>
-        <a href="/workstations" class="{% if page == 'workstations' %}text-blue-600 font-medium{% else %}text-slate-600 hover:text-slate-900{% endif %}">账号</a>
-        <a href="/tasks" class="{% if page == 'tasks' %}text-blue-600 font-medium{% else %}text-slate-600 hover:text-slate-900{% endif %}">任务</a>
-        <a href="/tasks/new" class="{% if page == 'new_task' %}text-blue-600 font-medium{% else %}text-slate-600 hover:text-slate-900{% endif %}">+ 新建任务</a>
-      </nav>
+      <div class="flex items-center gap-6">
+        <nav class="flex gap-4 text-sm">
+          {% set page = active_page or '' %}
+          <a href="/" class="{% if page == 'dashboard' %}text-blue-600 font-medium{% else %}text-slate-600 hover:text-slate-900{% endif %}">总览</a>
+          <a href="/workstations" class="{% if page == 'workstations' %}text-blue-600 font-medium{% else %}text-slate-600 hover:text-slate-900{% endif %}">账号</a>
+          <a href="/tasks" class="{% if page == 'tasks' %}text-blue-600 font-medium{% else %}text-slate-600 hover:text-slate-900{% endif %}">任务</a>
+          <a href="/tasks/new" class="{% if page == 'new_task' %}text-blue-600 font-medium{% else %}text-slate-600 hover:text-slate-900{% endif %}">+ 新建任务</a>
+        </nav>
+        {# Day / night operating-mode toggle. Initial value comes from
+           the server context (``current_mode``) so the active button is
+           painted before any JS runs. Click → POST /api/mode; the JS
+           updates the active class without a page reload. #}
+        <div id="mode-toggle" class="flex items-center bg-slate-100 rounded-full p-0.5 text-xs"
+             data-current="{{ current_mode() if current_mode else 'day' }}">
+          <button type="button" data-mode="day"
+                  title="日间模式（人工值守）"
+                  class="px-2.5 py-1 rounded-full transition-colors">
+            ☀️ 日间
+          </button>
+          <button type="button" data-mode="night"
+                  title="夜间模式（无人值守）"
+                  class="px-2.5 py-1 rounded-full transition-colors">
+            🌙 夜间
+          </button>
+        </div>
+      </div>
     </div>
   </header>
 
@@ -33,5 +52,36 @@
   <footer class="max-w-6xl mx-auto px-4 py-6 text-xs text-slate-400">
     Flow Harvester &middot; 本地运行
   </footer>
+
+  <script>
+  (() => {
+    const root = document.getElementById('mode-toggle');
+    if (!root) return;
+    const dayBtn = root.querySelector('[data-mode="day"]');
+    const nightBtn = root.querySelector('[data-mode="night"]');
+    const apply = (mode) => {
+      root.dataset.current = mode;
+      const active = 'bg-white text-slate-900 shadow-sm';
+      const idle = 'text-slate-500 hover:text-slate-700';
+      dayBtn.className = `px-2.5 py-1 rounded-full transition-colors ${mode === 'day' ? active : idle}`;
+      nightBtn.className = `px-2.5 py-1 rounded-full transition-colors ${mode === 'night' ? active : idle}`;
+    };
+    apply(root.dataset.current || 'day');
+    const set = async (mode) => {
+      try {
+        const resp = await fetch('/api/mode', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({value: mode}),
+        });
+        if (!resp.ok) return;
+        const body = await resp.json();
+        apply(body.value);
+      } catch (_) { /* ignore network errors */ }
+    };
+    dayBtn.addEventListener('click', () => set('day'));
+    nightBtn.addEventListener('click', () => set('night'));
+  })();
+  </script>
 </body>
 </html>

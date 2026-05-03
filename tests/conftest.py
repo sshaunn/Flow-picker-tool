@@ -11,6 +11,8 @@ from app.config.loader import (
     CooldownSettings,
     FlowSettings,
     GenerationSettings,
+    ModeProfile,
+    OperationModeSettings,
     RecoverySettings,
     WorkstationConfig,
 )
@@ -57,6 +59,19 @@ def app_config(tmp_path: Path, db_path: Path, output_root: Path) -> AppConfig:
         ),
         flow=FlowSettings(entry_url="http://localhost/mock"),
         recovery=RecoverySettings(running_stale_minutes=30, zombie_recovery_limit=3),
+        # Override the day/night profiles too — the daemon now reads from
+        # operation_modes per pass, not from generation settings, so we
+        # need stagger=0 + high concurrency here as well.
+        operation_modes=OperationModeSettings(
+            day=ModeProfile(
+                stagger_sec=0, max_concurrent_ws=10, auto_resume_cap=3,
+                captcha_action="pause",
+            ),
+            night=ModeProfile(
+                stagger_sec=0, max_concurrent_ws=10, auto_resume_cap=5,
+                captcha_action="skip",
+            ),
+        ),
         output_root=str(output_root),
         db_path=str(db_path),
         log_root=str(log_root),

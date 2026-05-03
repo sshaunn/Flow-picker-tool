@@ -202,6 +202,19 @@ class SchedulerDaemon:
         ws_list = self._resolve_workstations()
         if not ws_list:
             return MultiRunSummary()
+        # Resolve the day / night profile for this pass. Read fresh each
+        # time so a customer toggling the top-nav switch takes effect on
+        # the next idle-poll cycle.
+        from app.db.connection import connect as _connect
+        from app.state import get_operation_mode
+        conn = _connect(self._db_path, check_same_thread=False)
+        try:
+            mode = get_operation_mode(conn)
+        finally:
+            conn.close()
+        active_profile = getattr(
+            self._config.operation_modes, mode.value,
+        )
         try:
             return run_multi_workstation(
                 db_path=self._db_path,
@@ -211,6 +224,7 @@ class SchedulerDaemon:
                 use_mock=self._use_mock,
                 mock_round_plans_per_ws=self._mock_plans,
                 mock_initial_state=self._mock_initial_state,
+                mode_profile=active_profile,
             )
         except Exception as exc:  # noqa: BLE001
             self._log.exception("scheduler pass raised: %s", exc)

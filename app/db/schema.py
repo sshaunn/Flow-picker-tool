@@ -157,6 +157,15 @@ CREATE TABLE IF NOT EXISTS task_assets (
 
 CREATE INDEX IF NOT EXISTS idx_task_assets_task_order
     ON task_assets (task_id, asset_order);
+
+-- Single-row key/value store for runtime app settings the operator
+-- toggles from the Web UI (currently: ``operation_mode`` = day | night).
+-- Plain text values; callers parse / validate.
+CREATE TABLE IF NOT EXISTS app_state (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 

@@ -25,6 +25,7 @@ from app.db.schema import init_schema
 from app.scheduler.daemon import SchedulerDaemon
 from app.web.routes import files as files_routes
 from app.web.routes import login as login_routes
+from app.web.routes import mode as mode_routes
 from app.web.routes import pages as page_routes
 from app.web.routes import scheduler as scheduler_routes
 from app.web.routes import tasks as tasks_routes
@@ -112,6 +113,7 @@ def create_app(
     app.include_router(ws_routes_module.router)
     app.include_router(login_routes.router)
     app.include_router(files_routes.router)
+    app.include_router(mode_routes.router)
 
     # Make the friendly-error helpers callable from any Jinja2 template.
     from app.web import messages as _messages
@@ -121,6 +123,21 @@ def create_app(
     ws_routes_module._templates.env.globals["ws_cooldown_friendly"] = _messages.ws_cooldown_friendly
     login_routes._templates.env.globals["ws_cooldown_friendly"] = _messages.ws_cooldown_friendly
     files_routes._templates.env.globals["task_error_friendly"] = _messages.task_error_friendly
+
+    # Expose the current operation mode to every base.html render so the
+    # top-nav toggle paints the active button server-side (no flash).
+    from app.state import get_operation_mode
+
+    def _current_mode() -> str:
+        try:
+            with connect(config.db_path) as conn:
+                return get_operation_mode(conn).value
+        except Exception:  # noqa: BLE001 — fail soft, default day
+            return "day"
+
+    for tpl_env in (page_routes.templates.env, ws_routes_module._templates.env,
+                    login_routes._templates.env, files_routes._templates.env):
+        tpl_env.globals["current_mode"] = _current_mode
 
     static_dir = Path(__file__).parent / "static"
     if static_dir.exists():

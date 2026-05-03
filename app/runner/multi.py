@@ -23,7 +23,9 @@ from datetime import date
 from pathlib import Path
 from typing import Iterable, Optional
 
-from app.config.loader import AppConfig, FlowModeSpec, WorkstationConfig
+from app.config.loader import (
+    AppConfig, FlowModeSpec, ModeProfile, WorkstationConfig,
+)
 from app.db.connection import connect, transaction
 from app.scheduler.claim import claim_one
 from app.scheduler.recovery import recover_zombie_tasks
@@ -124,6 +126,7 @@ def _execute_in_thread(
     mock_round_plans: Optional[list[MockRoundPlan]],
     mock_initial_state: PageState,
     run_date: date,
+    captcha_action: str = "pause",
 ) -> str:
     log = get_worker_logger(config.log_root, workstation.id)
     # Pull per-task flow_mode override (any field NULL means "use WS default").
@@ -165,6 +168,7 @@ def _execute_in_thread(
             config=config.generation,
             output_root=Path(config.output_root),
             run_date=run_date,
+            captcha_action=captcha_action,
         )
         with transaction(conn):
             finalize_task(
@@ -195,12 +199,28 @@ def run_multi_workstation(
     mock_round_plans_per_ws: Optional[dict[str, list[MockRoundPlan]]] = None,
     mock_initial_state: PageState = PageState.READY,
     today: Optional[date] = None,
+    mode_profile: Optional[ModeProfile] = None,
 ) -> MultiRunSummary:
     workstations = list(workstations)
     if not workstations:
         raise ValueError("no workstations configured")
 
     log = get_scheduler_logger(config.log_root)
+    # Day/night profile selects stagger + max concurrency; falls back to
+    # the historical generation settings for callers (CLI / tests) that
+    # don't supply one.
+    effective_stagger_sec = (
+        mode_profile.stagger_sec if mode_profile is not None
+        else getattr(config.generation, "inter_workstation_launch_stagger_sec", 0)
+    )
+    effective_max_concurrent = (
+        mode_profile.max_concurrent_ws if mode_profile is not None
+        else len(workstations)
+    )
+    effective_auto_resume_cap = (
+        mode_profile.auto_resume_cap if mode_profile is not None
+        else config.generation.max_auto_resume_count
+    )
 
     if not use_mock:
         for ws in workstations:
@@ -237,17 +257,21 @@ def run_multi_workstation(
         recover_zombie_tasks(main_conn, cfg=config.recovery)
         # Auto-resume tasks that exhausted their retry budget if there's
         # at least one healthy WS available — saves the customer from
-        # clicking "继续任务" after every cooldown wave. Capped via
-        # ``max_auto_resume_count`` so a sticky rate-limit can't loop.
+        # clicking "继续任务" after every cooldown wave. Cap is taken
+        # from the active day/night profile when available so night gets
+        # a more generous budget (no human around to intervene).
         from app.tasks.repository import auto_resume_exhausted_tasks
         resumed = auto_resume_exhausted_tasks(
             main_conn,
-            max_auto_resume_count=config.generation.max_auto_resume_count,
+            max_auto_resume_count=effective_auto_resume_cap,
         )
         if resumed:
             log.info("auto-resumed %d retry-exhausted task(s)", resumed)
 
         run_date = today or date.today()
+        # Pool sized for the WS count; the day/night profile's
+        # max_concurrent_ws caps how many we'll launch in parallel even
+        # when more are healthy.
         max_workers = max(1, len(workstations))
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             rounds = 0
@@ -262,6 +286,13 @@ def run_multi_workstation(
                 if not eligible_ids:
                     # All workstations busy in-thread — wait for one to free up.
                     next(iter(in_flight.values())).result()  # block on any one
+                    _release_done()
+                    continue
+                # Mode-driven concurrency cap: night holds the parallel
+                # count low even when more WS are healthy, to spread the
+                # IP fingerprint across the unattended shift.
+                if len(in_flight) >= effective_max_concurrent:
+                    next(iter(in_flight.values())).result()
                     _release_done()
                     continue
 
@@ -284,17 +315,13 @@ def run_multi_workstation(
                 ws_cfg = by_id[claim.workstation_id]
                 plans = (mock_round_plans_per_ws or {}).get(ws_cfg.id)
 
-                # Stagger workstation launches. ``inter_workstation_launch_stagger_sec``
-                # is the minimum gap between consecutive submits so the
-                # second-and-later workstations don't hit Google with
-                # parallel Veo requests from the same IP.
-                stagger_sec = getattr(
-                    config.generation, "inter_workstation_launch_stagger_sec", 0
-                )
-                if stagger_sec > 0 and last_submit_time[0] > 0:
+                # Mode-driven stagger: minimum gap between submits so
+                # the second-and-later WS don't fire parallel Veo
+                # requests from the same IP. Night uses a longer gap.
+                if effective_stagger_sec > 0 and last_submit_time[0] > 0:
                     elapsed = time.time() - last_submit_time[0]
-                    if elapsed < stagger_sec:
-                        wait = stagger_sec - elapsed
+                    if elapsed < effective_stagger_sec:
+                        wait = effective_stagger_sec - elapsed
                         log.info(
                             "[stagger] sleeping %.1fs before launching ws=%s "
                             "(last submit %.1fs ago)",
@@ -313,6 +340,10 @@ def run_multi_workstation(
                     mock_round_plans=plans,
                     mock_initial_state=mock_initial_state,
                     run_date=run_date,
+                    captcha_action=(
+                        mode_profile.captcha_action
+                        if mode_profile is not None else "pause"
+                    ),
                 )
 
                 def _on_done(f: Future, ws_id: str = ws_cfg.id):

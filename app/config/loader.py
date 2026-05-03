@@ -86,11 +86,55 @@ class RecoverySettings(BaseModel):
     zombie_recovery_limit: int = Field(3, gt=0)
 
 
+class ModeProfile(BaseModel):
+    """Per-mode tunables. The current ``operation_mode`` (day / night)
+    selects which profile the runner injects on each pass.
+
+    * ``stagger_sec`` — minimum gap between consecutive WS launches.
+      Night gets a longer gap because the customer isn't there to
+      catch a mass-ban cascade.
+    * ``max_concurrent_ws`` — at most this many WS active at once.
+      Even with 5 WS healthy, night caps to 2 to spread load over the
+      shift.
+    * ``auto_resume_cap`` — how many times the daemon can auto-resume
+      a retry-exhausted task. Higher at night because no human is
+      around to click "继续任务".
+    * ``captcha_action`` — ``pause`` keeps the task in manual_check
+      (waiting for a human); ``skip`` flips it to manual_review and
+      moves on. Day pauses, night skips.
+    """
+    stagger_sec: int = Field(60, ge=0)
+    max_concurrent_ws: int = Field(5, gt=0)
+    auto_resume_cap: int = Field(3, ge=0)
+    captcha_action: str = Field("pause")
+
+    @field_validator("captcha_action")
+    @classmethod
+    def _check_captcha_action(cls, v: str) -> str:
+        if v not in {"pause", "skip"}:
+            raise ValueError(f"captcha_action must be 'pause' or 'skip', got {v!r}")
+        return v
+
+
+class OperationModeSettings(BaseModel):
+    """Day vs night profile bundle. Picked up by the daemon based on
+    the operator-toggled mode in ``app_state``."""
+    day: ModeProfile = ModeProfile(
+        stagger_sec=60, max_concurrent_ws=5, auto_resume_cap=3,
+        captcha_action="pause",
+    )
+    night: ModeProfile = ModeProfile(
+        stagger_sec=120, max_concurrent_ws=2, auto_resume_cap=5,
+        captcha_action="skip",
+    )
+
+
 class AppConfig(BaseModel):
     generation: GenerationSettings
     cooldown: CooldownSettings
     flow: FlowSettings
     recovery: RecoverySettings = RecoverySettings()
+    operation_modes: OperationModeSettings = OperationModeSettings()
     # Path defaults are platform-aware (see ``app.paths``). settings.yaml
     # may pin explicit values to override (the dev repo does this so test
     # output stays in-tree); customer installs leave these unset so the
