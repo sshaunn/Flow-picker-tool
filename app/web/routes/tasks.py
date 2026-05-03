@@ -105,6 +105,125 @@ def get_route(task_id: str, conn: sqlite3.Connection = Depends(get_db_conn)) -> 
     return _to_out(record, assets)
 
 
+class BulkImportSummary(BaseModel):
+    inserted: int
+    skipped: int
+    errors: list[str]
+    task_ids: list[str]
+
+
+@router.post("/bulk-import", response_model=BulkImportSummary,
+             status_code=status.HTTP_201_CREATED)
+async def bulk_import_route(
+    csv_file: UploadFile = File(..., description="CSV with task rows"),
+    images: List[UploadFile] = File(..., description="All referenced images"),
+    conn: sqlite3.Connection = Depends(get_db_conn),
+    config=Depends(get_config),
+) -> BulkImportSummary:
+    """Import many tasks at once from a CSV + a folder of images.
+
+    CSV columns: ``sku_id, creative_id, segment_id, video_prompt,
+    target_count, source_asset_path``. ``source_asset_path`` references
+    one of the uploaded image files by basename — the server resolves it
+    after staging the uploads under a temp dir.
+
+    Optional columns: ``sequence_index``, ``depends_on_task_id``,
+    ``max_retry_count``, ``asset_kind``. Anything not in the CSV uses the
+    same defaults as the single-task form.
+    """
+    import csv as _csv
+    import io as _io
+    import shutil as _shutil
+    import tempfile as _tempfile
+    from app.tasks.repository import (
+        AssetDraft, TaskDraft, TaskRepositoryError,
+    )
+
+    try:
+        text = (await csv_file.read()).decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(
+            status_code=400, detail=f"CSV must be UTF-8: {exc}",
+        ) from exc
+    reader = _csv.DictReader(_io.StringIO(text))
+    rows = list(reader)
+    if not rows:
+        raise HTTPException(status_code=400, detail="CSV has no rows")
+
+    # Stage every uploaded image under a temp dir keyed by basename.
+    tmp_dir = Path(_tempfile.mkdtemp(prefix="flow_bulk_"))
+    by_basename: dict[str, Path] = {}
+    try:
+        for upload in images:
+            base = (upload.filename or "").split("/")[-1]
+            if not base:
+                continue
+            dest = tmp_dir / base
+            with dest.open("wb") as fh:
+                while True:
+                    chunk = await upload.read(64 * 1024)
+                    if not chunk:
+                        break
+                    fh.write(chunk)
+            by_basename[base] = dest
+
+        inserted: list[str] = []
+        errors: list[str] = []
+        for line_no, row in enumerate(rows, start=2):
+            try:
+                asset_ref = (row.get("source_asset_path") or "").strip()
+                if not asset_ref:
+                    raise ValueError("source_asset_path is empty")
+                staged = by_basename.get(asset_ref) or by_basename.get(
+                    asset_ref.split("/")[-1]
+                )
+                if staged is None:
+                    raise ValueError(
+                        f"image {asset_ref!r} not in uploaded files"
+                    )
+                target = int((row.get("target_count") or "").strip() or "0")
+                draft = TaskDraft(
+                    sku_id=(row.get("sku_id") or "").strip(),
+                    creative_id=(row.get("creative_id") or "").strip(),
+                    segment_id=(row.get("segment_id") or "").strip(),
+                    video_prompt=(row.get("video_prompt") or "").strip(),
+                    target_count=target,
+                    sequence_index=int(
+                        (row.get("sequence_index") or "1").strip() or "1"
+                    ),
+                    depends_on_task_id=(
+                        (row.get("depends_on_task_id") or "").strip() or None
+                    ),
+                    max_retry_count=(
+                        int(row["max_retry_count"])
+                        if row.get("max_retry_count")
+                        and str(row["max_retry_count"]).strip() != ""
+                        else None
+                    ),
+                    assets=[AssetDraft(
+                        path=staged,
+                        kind=(row.get("asset_kind") or "reference").strip(),
+                        copy_into_managed_dir=True,
+                    )],
+                )
+                new_id = create_task(
+                    conn, draft,
+                    default_max_retry=config.generation.max_retry_count,
+                )
+                inserted.append(new_id)
+            except (TaskRepositoryError, ValueError, KeyError) as exc:
+                errors.append(f"第 {line_no} 行：{exc}")
+    finally:
+        _shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    return BulkImportSummary(
+        inserted=len(inserted),
+        skipped=len(errors),
+        errors=errors,
+        task_ids=inserted,
+    )
+
+
 @router.post("", response_model=TaskOut, status_code=status.HTTP_201_CREATED)
 async def create_route(
     sku_id: str = Form(...),

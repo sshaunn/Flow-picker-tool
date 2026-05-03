@@ -399,6 +399,9 @@ def resume_task(conn: sqlite3.Connection, task_id: str) -> bool:
     and ``generation_round_count`` so the next run continues from where
     the prior attempts left off — the customer-facing "继续任务" action.
 
+    Also zeroes the auto-resume counter so the task gets a fresh budget
+    of automatic retries the next time the scheduler picks it up.
+
     Returns True if the task was eligible (its status was non-terminal).
     Refuses to touch ``running`` tasks (would race the worker thread)
     or ``success`` tasks (nothing to resume).
@@ -416,6 +419,7 @@ def resume_task(conn: sqlite3.Connection, task_id: str) -> bool:
             UPDATE tasks SET
                 status = 'pending',
                 retry_count = 0,
+                auto_resumed_count = 0,
                 error_type = NULL,
                 error_message = NULL,
                 assigned_workstation_id = NULL,
@@ -426,6 +430,53 @@ def resume_task(conn: sqlite3.Connection, task_id: str) -> bool:
             (task_id,),
         )
     return True
+
+
+def auto_resume_exhausted_tasks(
+    conn: sqlite3.Connection,
+    *,
+    max_auto_resume_count: int,
+) -> int:
+    """Auto-resume tasks parked at retry exhaustion when there's likely
+    something useful for them to do. Returns the number resumed.
+
+    Eligibility:
+    * status == 'retry_waiting' AND retry_count >= max_retry_count
+    * auto_resumed_count < max_auto_resume_count (cap stops infinite
+      loops when Flow's rate limit stays sticky)
+    * at least one healthy workstation exists in the DB (otherwise the
+      auto-resumed task would just go back to retry_waiting on the next
+      pass)
+
+    Customer can break out of the loop by clicking "继续任务" which
+    resets ``auto_resumed_count`` to 0 (granting a fresh budget).
+    """
+    if max_auto_resume_count <= 0:
+        return 0
+    has_healthy = conn.execute(
+        "SELECT 1 FROM workstations WHERE status = 'healthy' LIMIT 1"
+    ).fetchone()
+    if has_healthy is None:
+        return 0
+    with transaction(conn):
+        cursor = conn.execute(
+            """
+            UPDATE tasks SET
+                status = 'pending',
+                retry_count = 0,
+                auto_resumed_count = auto_resumed_count + 1,
+                error_type = NULL,
+                error_message = NULL,
+                assigned_workstation_id = NULL,
+                started_at = NULL,
+                finished_at = NULL
+             WHERE status = 'retry_waiting'
+               AND retry_count >= max_retry_count
+               AND auto_resumed_count < ?
+            """,
+            (max_auto_resume_count,),
+        )
+    return cursor.rowcount
 
 
 def delete_task(

@@ -35,6 +35,7 @@ from app.workstations.login_session import (
 )
 from app.workstations.repository import (
     get_workstation,
+    revive_workstation,
     update_workstation_config,
 )
 
@@ -96,6 +97,12 @@ def _make_capture_callback(db_path: str, ws_id: str):
             if ws.flow_mode is None:
                 fields["flow_mode"] = _DEFAULT_FLOW_MODE
             update_workstation_config(conn, ws_id, **fields)
+            # A successful re-login proves the account is reachable from
+            # a fresh session; clear any sticky scheduler state (strikes,
+            # cooldown, manual_check) so the daemon can pick it up again.
+            # This is the customer's only path back from manual_check
+            # without CLI access.
+            revive_workstation(conn, ws_id)
         finally:
             conn.close()
     return _on_capture

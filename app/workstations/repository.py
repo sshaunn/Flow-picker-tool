@@ -53,6 +53,34 @@ class WorkstationHealth:
     last_failure_at: Optional[str]
 
 
+def revive_workstation(conn: sqlite3.Connection, ws_id: str) -> bool:
+    """Reset the scheduler-owned health fields back to a clean state.
+
+    Used after a successful re-login: the customer just proved the
+    account is reachable from a fresh session, so any prior strikes /
+    cooldown / consecutive-failure stickiness should be cleared. Status
+    flips to ``healthy`` so the next ``run_multi_workstation`` pass can
+    claim work for it.
+
+    Returns True if a row was touched.
+    """
+    with transaction(conn):
+        cursor = conn.execute(
+            """
+            UPDATE workstations SET
+                status = 'healthy',
+                cooldown_until = NULL,
+                cooldown_reason = NULL,
+                consecutive_failure_count = 0,
+                ban_probe_count = 0,
+                updated_at = datetime('now')
+             WHERE id = ?
+            """,
+            (ws_id,),
+        )
+    return cursor.rowcount > 0
+
+
 def get_workstation_health(
     conn: sqlite3.Connection, ws_id: str,
 ) -> Optional[WorkstationHealth]:

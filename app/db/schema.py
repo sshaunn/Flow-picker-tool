@@ -189,6 +189,11 @@ _MIGRATIONS: list[tuple[str, str]] = [
     ("tasks", "flow_mode_output_count INTEGER"),
     ("tasks", "flow_mode_duration_sec INTEGER"),
     ("tasks", "flow_mode_model TEXT"),
+    # How many times the scheduler has auto-resumed this task after a
+    # retry-budget exhaustion. Capped to prevent infinite loops when
+    # Flow's unusual_activity fence is sticky; a manual "继续任务" click
+    # resets the counter so the customer regains a fresh budget.
+    ("tasks", "auto_resumed_count INTEGER NOT NULL DEFAULT 0"),
 ]
 
 

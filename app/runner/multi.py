@@ -235,6 +235,17 @@ def run_multi_workstation(
         recover_workstation_states(main_conn)
         release_orphaned_busy_workstations(main_conn)
         recover_zombie_tasks(main_conn, cfg=config.recovery)
+        # Auto-resume tasks that exhausted their retry budget if there's
+        # at least one healthy WS available — saves the customer from
+        # clicking "继续任务" after every cooldown wave. Capped via
+        # ``max_auto_resume_count`` so a sticky rate-limit can't loop.
+        from app.tasks.repository import auto_resume_exhausted_tasks
+        resumed = auto_resume_exhausted_tasks(
+            main_conn,
+            max_auto_resume_count=config.generation.max_auto_resume_count,
+        )
+        if resumed:
+            log.info("auto-resumed %d retry-exhausted task(s)", resumed)
 
         run_date = today or date.today()
         max_workers = max(1, len(workstations))

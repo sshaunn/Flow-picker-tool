@@ -330,6 +330,14 @@ def tasks_new_form(request: Request) -> HTMLResponse:
     )
 
 
+@router.get("/tasks/bulk", response_class=HTMLResponse)
+def tasks_bulk_form(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request, "task_bulk.html",
+        {"active_page": "tasks"},
+    )
+
+
 @router.post("/tasks/new")
 async def tasks_create(
     sku_id: str = Form(...),

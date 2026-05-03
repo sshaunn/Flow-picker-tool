@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}批量导入任务 · Flow Harvester{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+  <h1 class="text-xl font-semibold mb-4">批量导入任务</h1>
+
+  <div class="mb-4 px-4 py-3 bg-blue-50 text-blue-900 text-sm rounded border border-blue-200">
+    <p class="font-medium mb-1">使用方法</p>
+    <ol class="list-decimal list-inside space-y-0.5 text-xs">
+      <li>准备一个 UTF-8 编码的 CSV 文件，每行一个任务。</li>
+      <li>必填列：<code class="font-mono bg-white px-1 rounded">sku_id, creative_id, segment_id, video_prompt, target_count, source_asset_path</code></li>
+      <li>可选列：<code class="font-mono bg-white px-1 rounded">sequence_index, depends_on_task_id, max_retry_count, asset_kind</code></li>
+      <li><code class="font-mono bg-white px-1 rounded">source_asset_path</code> 填图片文件名（例如 <code class="font-mono">image_001.png</code>），不要写完整路径。</li>
+      <li>同时把所有用到的图片一起上传。</li>
+    </ol>
+  </div>
+
+  <form id="bulk-form" enctype="multipart/form-data"
+        class="bg-white rounded-lg border border-slate-200 p-6 space-y-4">
+    <div>
+      <label class="block text-sm font-medium text-slate-700 mb-1">CSV 文件</label>
+      <input type="file" name="csv_file" accept=".csv,text/csv" required
+             class="w-full text-sm">
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-slate-700 mb-1">所有用到的图片</label>
+      <input type="file" name="images" multiple accept="image/*" required
+             class="w-full text-sm">
+      <p class="mt-1 text-xs text-slate-500">CSV 里的 <code class="font-mono">source_asset_path</code> 会按文件名匹配这里上传的图片。</p>
+    </div>
+
+    <div class="flex justify-end gap-2 pt-2">
+      <a href="/tasks" class="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900">取消</a>
+      <button type="submit" class="px-4 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">
+        开始导入
+      </button>
+    </div>
+  </form>
+
+  <div id="result" class="mt-4"></div>
+</div>
+
+<script>
+document.getElementById('bulk-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const form = ev.target;
+  const out = document.getElementById('result');
+  out.innerHTML = '<div class="text-sm text-slate-500">正在导入…</div>';
+  const data = new FormData(form);
+  try {
+    const resp = await fetch('/api/tasks/bulk-import', {method: 'POST', body: data});
+    const body = await resp.json();
+    if (!resp.ok) {
+      out.innerHTML = `<div class="px-4 py-3 bg-red-50 text-red-800 text-sm rounded border border-red-200">
+        导入失败：${body.detail || resp.statusText}
+      </div>`;
+      return;
+    }
+    let html = `<div class="px-4 py-3 bg-green-50 text-green-800 text-sm rounded border border-green-200">
+      成功导入 <strong>${body.inserted}</strong> 个任务。`;
+    if (body.skipped) html += ` 跳过 <strong>${body.skipped}</strong> 行。`;
+    html += '</div>';
+    if (body.errors && body.errors.length) {
+      html += '<div class="mt-2 px-4 py-3 bg-amber-50 text-amber-800 text-xs rounded border border-amber-200">';
+      html += '<div class="font-medium mb-1">跳过的行：</div><ul class="list-disc list-inside space-y-0.5">';
+      for (const e of body.errors) html += `<li>${e}</li>`;
+      html += '</ul></div>';
+    }
+    if (body.inserted) {
+      html += '<div class="mt-3"><a href="/tasks" class="text-blue-600 hover:underline text-sm">→ 查看任务列表</a></div>';
+    }
+    out.innerHTML = html;
+  } catch (err) {
+    out.innerHTML = `<div class="px-4 py-3 bg-red-50 text-red-800 text-sm rounded border border-red-200">
+      导入失败：${err.message}
+    </div>`;
+  }
+});
+</script>
+{% endblock %}

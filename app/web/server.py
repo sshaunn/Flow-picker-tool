@@ -113,6 +113,15 @@ def create_app(
     app.include_router(login_routes.router)
     app.include_router(files_routes.router)
 
+    # Make the friendly-error helpers callable from any Jinja2 template.
+    from app.web import messages as _messages
+    page_routes.templates.env.globals["task_error_friendly"] = _messages.task_error_friendly
+    page_routes.templates.env.globals["ws_cooldown_friendly"] = _messages.ws_cooldown_friendly
+    ws_routes_module._templates.env.globals["task_error_friendly"] = _messages.task_error_friendly
+    ws_routes_module._templates.env.globals["ws_cooldown_friendly"] = _messages.ws_cooldown_friendly
+    login_routes._templates.env.globals["ws_cooldown_friendly"] = _messages.ws_cooldown_friendly
+    files_routes._templates.env.globals["task_error_friendly"] = _messages.task_error_friendly
+
     static_dir = Path(__file__).parent / "static"
     if static_dir.exists():
         app.mount("/static", StaticFiles(directory=static_dir), name="static")

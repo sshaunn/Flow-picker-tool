@@ -23,6 +23,13 @@ class ConfigError(ValueError):
 class GenerationSettings(BaseModel):
     max_round_per_task: int = Field(8, gt=0)
     max_retry_count: int = Field(2, ge=0)
+    # When a task exhausts its retry budget but the assigned workstation
+    # has come back to healthy (e.g. after a strike-N cooldown clears),
+    # the scheduler can auto-resume the task without operator action.
+    # Capped to prevent infinite loops if Flow's rate limit stays sticky;
+    # after the cap is hit, the customer must click "继续任务" to grant
+    # a fresh budget.
+    max_auto_resume_count: int = Field(3, ge=0)
     page_action_timeout_sec: int = Field(60, gt=0)
     generation_wait_timeout_sec: int = Field(600, gt=0)
     # Stagger between workstation launches in the multi-runner.

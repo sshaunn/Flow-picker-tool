@@ -51,7 +51,12 @@
       <dt class="text-xs text-slate-500">冷却原因</dt>
       <dd class="mt-0.5 text-xs">
         {% if health.cooldown_reason %}
-          <span class="text-amber-700 font-mono">{{ health.cooldown_reason }}</span>
+          {% set wsf = ws_cooldown_friendly(health.cooldown_reason) %}
+          <div class="text-amber-700">{{ wsf[0] if wsf else health.cooldown_reason }}</div>
+          {% if wsf and wsf[1] %}
+            <div class="mt-0.5 text-amber-600">建议：{{ wsf[1] }}</div>
+          {% endif %}
+          <div class="mt-0.5 text-slate-400 font-mono text-[10px]">{{ health.cooldown_reason }}</div>
         {% else %}
           <span class="text-slate-500">—</span>
         {% endif %}
