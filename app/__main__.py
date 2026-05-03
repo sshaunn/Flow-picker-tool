@@ -76,4 +76,22 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    # Catch and surface errors so a failed bundle launch doesn't just
+    # flash a console window and disappear — the customer needs to see
+    # the traceback to send it to support.
+    try:
+        main()
+    except SystemExit:
+        raise
+    except BaseException:  # noqa: BLE001 — we want everything
+        import traceback
+        print("\n" + "=" * 60)
+        print("  Flow Harvester crashed.")
+        print("=" * 60)
+        traceback.print_exc()
+        print("=" * 60)
+        try:
+            input("Press Enter to close this window...")
+        except EOFError:
+            pass
+        sys.exit(1)
