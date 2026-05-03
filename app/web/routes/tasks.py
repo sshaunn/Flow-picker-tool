@@ -40,6 +40,15 @@ class TaskAssetOut(BaseModel):
     kind: str
 
 
+class TaskFlowModeOut(BaseModel):
+    tab: Optional[str] = None
+    subtab: Optional[str] = None
+    aspect: Optional[str] = None
+    output_count: Optional[int] = None
+    duration_sec: Optional[int] = None
+    model: Optional[str] = None
+
+
 class TaskOut(BaseModel):
     task_id: str
     sku_id: str
@@ -58,10 +67,14 @@ class TaskOut(BaseModel):
     error_type: Optional[str]
     error_message: Optional[str]
     created_at: str
+    flow_mode: Optional[TaskFlowModeOut] = None
     assets: list[TaskAssetOut] = []
 
 
 def _to_out(record, assets: list[tuple[int, str, str]] | None = None) -> TaskOut:
+    fm_out: Optional[TaskFlowModeOut] = None
+    if record.flow_mode is not None:
+        fm_out = TaskFlowModeOut(**record.flow_mode.model_dump())
     return TaskOut(
         task_id=record.task_id,
         sku_id=record.sku_id,
@@ -80,6 +93,7 @@ def _to_out(record, assets: list[tuple[int, str, str]] | None = None) -> TaskOut
         error_type=record.error_type,
         error_message=record.error_message,
         created_at=record.created_at,
+        flow_mode=fm_out,
         assets=[
             TaskAssetOut(order=o, path=p, kind=k)
             for o, p, k in (assets or [])
@@ -135,9 +149,33 @@ async def bulk_import_route(
     import io as _io
     import shutil as _shutil
     import tempfile as _tempfile
+    from app.config.loader import FlowModeSpec
     from app.tasks.repository import (
         AssetDraft, TaskDraft, TaskRepositoryError,
     )
+
+    def _empty_or_int(value):
+        if value is None or str(value).strip() == "":
+            return None
+        return int(value)
+
+    def _empty_or_str(value):
+        if value is None or str(value).strip() == "":
+            return None
+        return str(value).strip()
+
+    def _row_flow_mode(row: dict) -> FlowModeSpec | None:
+        fields = {
+            "tab": _empty_or_str(row.get("mode_tab")),
+            "subtab": _empty_or_str(row.get("mode_subtab")),
+            "aspect": _empty_or_str(row.get("mode_aspect")),
+            "output_count": _empty_or_int(row.get("mode_output_count")),
+            "duration_sec": _empty_or_int(row.get("mode_duration_sec")),
+            "model": _empty_or_str(row.get("mode_model")),
+        }
+        if all(v is None for v in fields.values()):
+            return None
+        return FlowModeSpec(**fields)
 
     try:
         text = (await csv_file.read()).decode("utf-8-sig")
@@ -205,6 +243,7 @@ async def bulk_import_route(
                         kind=(row.get("asset_kind") or "reference").strip(),
                         copy_into_managed_dir=True,
                     )],
+                    flow_mode=_row_flow_mode(row),
                 )
                 new_id = create_task(
                     conn, draft,

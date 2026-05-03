@@ -81,6 +81,23 @@ sku_001,creative_001,B,使用场景特写,4,product_a_scene.png
 sku_002,creative_002,A,户外使用展示,4,product_b.png
 ```
 
+每行还可以独立设置生成参数（任意列留空 = 用账号默认）：
+
+| 可选列 | 取值 |
+|--------|------|
+| `mode_model` | `Veo 3.1 - Fast` / `Veo 3.1 - Quality` / `Veo 3 - Fast` / `Veo 3 - Quality` / `Nano Banana 2` |
+| `mode_output_count` | 1 / 2 / 3 / 4（每轮输出几个） |
+| `mode_duration_sec` | 4 / 6 / 8（视频时长秒） |
+| `mode_aspect` | `9:16` / `16:9` / `1:1` |
+
+带模式覆盖的 CSV 例子：
+```csv
+sku_id,creative_id,segment_id,video_prompt,target_count,source_asset_path,mode_model,mode_duration_sec,mode_aspect
+sku_001,creative_001,A,产品快速展示,4,a.png,Veo 3.1 - Fast,4,9:16
+sku_001,creative_001,B,高质量精修,2,b.png,Veo 3.1 - Quality,8,9:16
+sku_002,creative_002,A,横屏场景,4,c.png,,8,16:9
+```
+
 ---
 
 ## 四、运行 & 监控

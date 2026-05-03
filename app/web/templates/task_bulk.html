@@ -10,7 +10,16 @@
     <ol class="list-decimal list-inside space-y-0.5 text-xs">
       <li>准备一个 UTF-8 编码的 CSV 文件，每行一个任务。</li>
       <li>必填列：<code class="font-mono bg-white px-1 rounded">sku_id, creative_id, segment_id, video_prompt, target_count, source_asset_path</code></li>
-      <li>可选列：<code class="font-mono bg-white px-1 rounded">sequence_index, depends_on_task_id, max_retry_count, asset_kind</code></li>
+      <li>可选基础列：<code class="font-mono bg-white px-1 rounded">sequence_index, depends_on_task_id, max_retry_count, asset_kind</code></li>
+      <li>可选生成参数列（每行可独立覆盖账号默认值，留空 = 用账号默认）：
+        <ul class="list-disc list-inside ml-4 mt-0.5">
+          <li><code class="font-mono bg-white px-1 rounded">mode_model</code>：例 <code>Veo 3.1 - Fast</code> / <code>Veo 3.1 - Quality</code></li>
+          <li><code class="font-mono bg-white px-1 rounded">mode_output_count</code>：1 / 2 / 3 / 4</li>
+          <li><code class="font-mono bg-white px-1 rounded">mode_duration_sec</code>：4 / 6 / 8</li>
+          <li><code class="font-mono bg-white px-1 rounded">mode_aspect</code>：9:16 / 16:9 / 1:1</li>
+          <li><code class="font-mono bg-white px-1 rounded">mode_tab</code>、<code class="font-mono bg-white px-1 rounded">mode_subtab</code>（一般无需填）</li>
+        </ul>
+      </li>
       <li><code class="font-mono bg-white px-1 rounded">source_asset_path</code> 填图片文件名（例如 <code class="font-mono">image_001.png</code>），不要写完整路径。</li>
       <li>同时把所有用到的图片一起上传。</li>
     </ol>
