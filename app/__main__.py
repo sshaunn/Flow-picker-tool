@@ -163,20 +163,68 @@ def main() -> None:
     server_thread.join(timeout=15.0)
 
 
+def _show_crash_dialog(traceback_text: str, crash_path: Optional[Path]) -> None:
+    """Best-effort customer-visible crash report.
+
+    Order of preference (each falls through if it can't talk to a UI):
+    1. Windows native MessageBox (always works on Win, no deps).
+    2. macOS ``osascript`` dialog.
+    3. Linux ``zenity`` if installed.
+    4. Silent — crash.log is already written, customer can find it.
+
+    Critically does NOT call ``input()`` because PyInstaller's
+    ``console=False`` bundle has no stdin and that path raises
+    "lost sys.stdin" which masks the original error.
+    """
+    location_hint = (
+        f"\n\nDetails: {crash_path}" if crash_path else ""
+    )
+    body = (
+        "Flow Harvester 启动失败 / failed to start.\n\n"
+        + traceback_text[-1500:]
+        + location_hint
+    )
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(
+                None, body, "Flow Harvester crash",
+                0x10,  # MB_ICONERROR
+            )
+            return
+        except Exception:  # noqa: BLE001
+            pass
+    if sys.platform == "darwin":
+        try:
+            import subprocess
+            subprocess.run([
+                "osascript", "-e",
+                f'display dialog {body!r} with title "Flow Harvester crash" with icon stop buttons {{"OK"}}',
+            ], check=False)
+            return
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        import subprocess
+        subprocess.run(
+            ["zenity", "--error", "--title=Flow Harvester crash",
+             f"--text={body}"],
+            check=False,
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+
 if __name__ == "__main__":
-    # Catch and surface errors so a failed bundle launch doesn't just
-    # flash a console window and disappear — the customer needs to see
-    # the traceback to send to support.
     try:
         main()
     except SystemExit:
         raise
     except BaseException:  # noqa: BLE001 — we want everything
         import traceback
-        # When console=False there's no stdout. Best effort: write to a
-        # crash file next to the logs and pop a message via webview if
-        # we got that far, else fall through to a console print which
-        # the dev-from-source path will see.
+        crash_path: Optional[Path] = None
+        # 1. Always write the traceback to a file first — even if the
+        #    UI fallbacks below all fail, the customer can grab this.
         try:
             from app import paths as app_paths
             crash_path = app_paths.logs_dir() / "crash.log"
@@ -187,24 +235,6 @@ if __name__ == "__main__":
                 traceback.print_exc(file=fh)
         except Exception:  # noqa: BLE001
             pass
-        # Best-effort native dialog so the customer sees something.
-        try:
-            import webview
-            webview.create_window(
-                "Flow Harvester crash",
-                html=f"""<!DOCTYPE html>
-                <html><body style='font-family:sans-serif;padding:2em'>
-                <h2>启动失败</h2>
-                <p>详细信息已写入：<code>%LOCALAPPDATA%\\FlowHarvester\\logs\\crash.log</code></p>
-                <pre style='background:#fee;padding:1em;overflow:auto'>{traceback.format_exc()}</pre>
-                </body></html>""",
-                width=720, height=540,
-            )
-            webview.start()
-        except Exception:  # noqa: BLE001
-            traceback.print_exc()
-            try:
-                input("Press Enter to close...")
-            except EOFError:
-                pass
+        # 2. Try to surface something native to the customer.
+        _show_crash_dialog(traceback.format_exc(), crash_path)
         sys.exit(1)
