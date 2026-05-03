@@ -1,0 +1,7 @@
+# Keep Windows batch files CRLF on checkout regardless of the
+# developer's git autocrlf setting — cmd.exe is forgiving but some
+# legacy contexts (e.g. running setup.bat from a network share)
+# choke on bare LF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf

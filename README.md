@@ -1,103 +1,98 @@
-# Flow Picker Tool
+# Flow Harvester
 
-Flow Picker Tool 是一个面向 Google Flow 视频生成的最小可用执行系统草案。它以 Segment 为基本调度单位，多个 Segment 通过 `creative_id` 聚合归属于同一套脚本；只接管「已验证源素材（首帧图或衔接素材）+ 已验证视频 Prompt + 目标候选数量 `target_count`」之后的高重复执行环节：自动派发任务、打开 Flow、上传源素材、粘贴 Prompt、循环触发生成直到 `downloaded_count >= target_count`、下载结果、按 `日期/SKU/Creative/Segment` 归档文件，并在 unusual activity、登录异常、验证码或页面异常出现时暂停对应工位，避免整批任务停摆。
+Local-first Web tool that drives Google Flow (labs.google/fx/tools/flow) to
+batch-harvest Veo videos from a managed pool of Google accounts. The
+operator drives everything from a browser dashboard at
+`http://127.0.0.1:8080/` — no CLI, no YAML editing.
 
-## 当前阶段
+Built around a thin FastAPI server + SQLite + a [patchright](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright)-driven
+worker that re-uses the customer's installed Chrome profile.
 
-当前仓库处于项目初始化阶段，已准备：
+---
 
-- README 项目入口
-- `.gitignore` 初始规则
-- `docs/` 项目文档拆分
+## Quick start
 
-## MVP 边界
+### Windows (customer install)
 
-本项目只做：
+1. Install **Google Chrome** and **Python 3.10+** (tick "Add Python to PATH").
+2. Drop the project folder somewhere stable (e.g. `D:\FlowHarvester\`).
+3. Double-click `setup.bat` once.
+4. Double-click `start.bat` whenever you want to use it. Browser opens to the dashboard automatically.
 
-> 已验证源素材 + 已验证 Segment 视频 Prompt + `target_count` -> Flow 按 Segment 循环生成候选视频 -> 下载落盘 -> 异常熔断 -> 第二天按 creative 聚合收菜
+Detailed walk-through: [docs/customer-install-windows.md](docs/customer-install-windows.md).
 
-本阶段不做 Prompt 生成、首帧图生成、首帧图筛选、视频质量判断、自动剪辑、验证码绕过，也不承诺规避 Flow 的风控。任务最终未达 `target_count` 进入 `failed` 时，已落盘候选不被回滚，日报独立列出「未达标但有产出」段。
+### macOS / Linux (developer)
 
-## 第一版技术栈
-
-| 模块 | 选型 |
-|---|---|
-| 语言 | Python |
-| 浏览器自动化 | Playwright |
-| 数据库 | SQLite |
-| 任务导入 | CSV |
-| 配置 | YAML |
-| 结果存储 | 本地文件夹 |
-| 运行方式 | CLI |
-| 日志 | 本地 log 文件 |
-
-## 文档索引
-
-- [项目范围](docs/product-scope.md)
-- [客户需求与 MVP 验收](docs/requirements.md)
-- [客户流程适配与冲突检查](docs/customer-workflow-fit.md)
-- [系统架构](docs/architecture.md)
-- [执行流程与调度规则](docs/workflow-and-scheduling.md)
-- [数据结构与文件目录](docs/data-and-storage.md)
-- [日报与人工验收](docs/operations-and-reports.md)
-- [版本计划与交付清单](docs/roadmap.md)
-- [MVP 开发计划与任务拆分](docs/development-plan.md)
-- [输入与配置模板](docs/templates.md)
-
-## 目标目录草图
-
-```text
-flow-harvester/
-├── input/
-│   ├── tasks.csv
-│   └── images/
-│       ├── stroller_001_creative_001_A.png
-│       └── stroller_001_creative_001_B.png
-├── output/
-│   └── 2026-04-28/
-│       ├── stroller_001/
-│       │   └── stroller_001_creative_001/
-│       │       ├── segment_A/
-│       │       │   ├── T001_round_01_seq_01.mp4
-│       │       │   ├── T001_round_01_seq_02.mp4
-│       │       │   └── screenshots/
-│       │       ├── segment_B/
-│       │       └── creative_summary.md
-│       └── daily_report.md
-├── profiles/
-│   ├── workstation_A/
-│   ├── workstation_B/
-│   └── workstation_C/
-├── logs/
-│   ├── scheduler.log
-│   ├── worker_WS_A.log
-│   └── errors.log
-├── config/
-│   ├── workstations.yaml
-│   └── settings.yaml
-├── app/
-│   ├── scheduler/
-│   ├── worker/
-│   ├── db/
-│   ├── reports/
-│   └── utils/
-├── docs/
-└── README.md
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+flow-harvester serve --port 8080
 ```
 
-输出文件命名：`{task_id}_round_{generation_round}_seq_{sequence_no}.mp4`，便于回溯每条候选所属的生成轮次。
+Open <http://127.0.0.1:8080/>.
 
-## 核心验收结果
+---
 
-第二天需要能直接查看：
+## What it does
 
-- 按 `日期/SKU/Creative/Segment` 归档的成功生成并下载的视频
-- 失败任务列表（`failed`）
-- 下载失败任务列表（`download_failed`）
-- 「未达标但有产出」任务列表（`status IN ('failed', 'download_failed')` 且 `0 < downloaded_count < target_count`）
-- 每个任务的 `downloaded_count / target_count` 进度
-- 每个 `creative_id` 下各 Segment 的聚合视图
-- 每个工位的执行状态（含 `cooldown` 到期时间）
-- unusual activity 触发记录
-- 错误截图（带 `generation_round` 标注）
-- 每日执行报告
+* Manages **3-5 Google accounts** as "workstations" — each with its own
+  persistent Chrome profile, daily task limit, and Flow project URL.
+* Customer creates tasks via a **Web form** (single) or
+  **CSV bulk upload** (many). Each task = SKU + creative + segment +
+  prompt + N target videos + reference image(s).
+* The scheduler claims (workstation, task) pairs, drives Chrome through
+  the Flow UI, downloads each generated mp4 into
+  `Documents/FlowHarvester/output/<date>/<sku>/<creative>/segment_<x>/`.
+* Per-account **strike-based cooldowns** when Google's `unusual_activity`
+  fence trips; auto-recovery via probe; full re-login from the UI when
+  things genuinely go sideways.
+* Two **operating modes** toggleable from the top nav:
+  * ☀️ **日间** (supervised) — 60s stagger, full concurrency, captcha
+    pauses task for the operator.
+  * 🌙 **夜间** (unattended) — 120s stagger, max 2 concurrent, captcha
+    skips the task to manual_review so the queue keeps moving.
+
+---
+
+## Documentation
+
+* [Customer manual (Chinese)](docs/customer-manual.md) — what the
+  operator does day-to-day.
+* [Windows install guide](docs/customer-install-windows.md) — first-run
+  setup on customer Win10/11 machines.
+* [Architecture](docs/architecture.md) — daemon / scheduler / worker
+  decomposition.
+* [Data and storage](docs/data-and-storage.md) — DB schema, output
+  layout, retention policy.
+* [Workflow and scheduling](docs/workflow-and-scheduling.md) —
+  state machines, cooldown tiers, recovery.
+* [Troubleshooting](docs/troubleshooting.md) — known Flow quirks +
+  fixes (audio failure, stale cards, prompt-attach selectors).
+* [Operations and reports](docs/operations-and-reports.md) — daily
+  report format, per-WS health.
+
+---
+
+## Stack
+
+| Layer | Pick |
+|-------|------|
+| Language | Python 3.10+ |
+| Browser automation | patchright (anti-detection Playwright fork) |
+| Web | FastAPI + uvicorn + Jinja2 + Tailwind CDN + HTMX |
+| Live updates | WebSocket (per-dashboard / per-task) |
+| Persistence | SQLite (WAL) |
+| Bulk import | CSV + multipart image upload |
+| Logs | Local log files (`worker_<id>.log`, `scheduler.log`) |
+
+---
+
+## Tests
+
+```bash
+.venv/bin/pytest -q
+```
+
+262 tests passing (one skipped — needs `patchright install chromium`,
+not used in production where customers use the system Chrome).
