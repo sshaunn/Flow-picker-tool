@@ -1,6 +1,6 @@
 # Flow Harvester — Windows 安装手册
 
-适用 Windows 10 / Windows 11。**不需要装 Python**，整个工具已经打包成单个 exe。
+适用 Windows 10 / Windows 11。**不需要装 Python**，整个工具已经打包成桌面 app。
 
 ---
 
@@ -10,7 +10,8 @@
 
 工具会调用客户机上已安装的 Chrome 来登录 Google 账号，所以这是必需的。
 
-> Chrome 通常公司机器都有；如果没有就装一下。Python / 任何其他依赖都**不需要**安装。
+> Win10/11 自带 Microsoft Edge WebView2，工具的窗口直接用它显示，不需要单独装。
+> Python / 任何其他依赖都**不需要**安装。
 
 ---
 
@@ -18,22 +19,21 @@
 
 1. 收到 `FlowHarvester-bundle.zip`。
 2. 解压到一个固定位置，例如 `D:\FlowHarvester\`。
-3. 双击 `FlowHarvester.exe`（或 `Run Flow Harvester.cmd`）。
+3. 双击 `FlowHarvester.exe`。
 4. 第一次启动 Windows Defender / SmartScreen 可能提示"未识别的应用"，点击 **更多信息** → **仍要运行**。
-5. 命令窗口打开，浏览器自动打开 `http://127.0.0.1:8080/`，看到「Flow Harvester」总览页就启动成功。
+5. 一个原生窗口直接打开，里面就是 Flow Harvester 的总览页 — 完成。
 
 ---
 
 ## 三、日常使用
 
-**双击 `FlowHarvester.exe`**。
+**双击 `FlowHarvester.exe`** → 一个窗口打开，里面就是工具。
 
-会发生：
-- 一个黑色命令窗口打开（**不要关闭它**，关了等于停止工具）
-- 浏览器自动打开 dashboard
-- 任务在后台跑，关浏览器不影响
+> 注意：这是一个**原生桌面 app**，不是浏览器。窗口标题栏写着 "Flow Harvester"。
+> 不要把它跟你浏览器里的 Chrome 标签搞混。
+> 后台不会另外开 cmd 窗口。
 
-要停止：在命令窗口按 `Ctrl+C`，或直接关闭命令窗口。
+要停止：**直接关窗口**（标题栏右上角 X）。
 
 > 想跟 Windows 一起开机自启动？把 `FlowHarvester.exe` 的快捷方式拖到 `shell:startup` 文件夹（按 `Win+R` → 输入 `shell:startup` → 回车）。
 
@@ -47,10 +47,11 @@
 | Chrome profile（账号登录态） | `%LOCALAPPDATA%\FlowHarvester\profiles\WS_X\` |
 | 上传的参考图 | `%LOCALAPPDATA%\FlowHarvester\assets\<task_id>\` |
 | 运行日志 | `%LOCALAPPDATA%\FlowHarvester\logs\` |
+| 启动崩溃记录 | `%LOCALAPPDATA%\FlowHarvester\logs\crash.log` |
 | **采集到的视频（重要！）** | `%USERPROFILE%\Documents\FlowHarvester\output\` |
 
 > `%LOCALAPPDATA%` 一般是 `C:\Users\<你的用户名>\AppData\Local`，是隐藏文件夹。
-> `%USERPROFILE%\Documents` 就是「文档」文件夹，平时能直接看到。
+> `%USERPROFILE%\Documents` 就是「文档」文件夹。
 
 任务详情页有 **打开文件夹** 按钮，会自动跳转到对应输出目录。
 
@@ -69,32 +70,33 @@
 
 ## 六、常见问题
 
-### Q：双击 exe 闪一下就消失？
+### Q：双击 exe 一闪就消失？
 
-工具运行时命令窗口要保留。如果窗口出现一秒就消失，多半是出错了被自动关。**手动**：先打开 cmd（`Win+R` → `cmd` → 回车），再 `cd` 进解压文件夹，运行 `FlowHarvester.exe`，就能看到完整错误。
+启动失败。看 `%LOCALAPPDATA%\FlowHarvester\logs\crash.log`，里面有完整 traceback。如果连这个文件都没生成，说明在打开文件之前就挂了，发开发者排查。
 
 ### Q：Windows Defender SmartScreen 拦截？
 
 第一次运行会拦截（"未识别的应用"），点 **更多信息** → **仍要运行**。后续不会再提示。
 
-如果是公司管控严的杀毒软件直接拦截删了 exe，找 IT 加白名单：`FlowHarvester.exe` 路径 + `%LOCALAPPDATA%\FlowHarvester\` 整个文件夹。
+如果是公司管控严的杀毒软件直接删 exe，找 IT 加白名单：`FlowHarvester.exe` 路径 + `%LOCALAPPDATA%\FlowHarvester\` 整个文件夹。
 
-### Q：浏览器没自动打开？
+### Q：窗口里显示空白 / 加载失败？
 
-手动浏览器开 `http://127.0.0.1:8080/`，效果一样。
+WebView2 没正确启动。多数 Win10/11 已经预装；个别精简版没有。手动装：
+- https://developer.microsoft.com/microsoft-edge/webview2/ → 下载 "Evergreen Standalone Installer"
+- 装完重新双击 `FlowHarvester.exe`。
 
 ### Q：占用 8080 端口？
 
-设置环境变量 `FLOW_HARVESTER_PORT=18080`（或其他端口）后再启动 exe。
-
-```cmd
-set FLOW_HARVESTER_PORT=18080
-FlowHarvester.exe
-```
+工具会自动检测端口，被占用就换一个空的（窗口正常打开，无需配置）。
 
 ### Q：Chrome 没装会怎样？
 
-可以启动 server 但加账号 → 登录这一步会失败。装好 Chrome 即可，工具不需要重启。
+工具能启动；加账号 → 登录这一步会失败。装好 Chrome 即可，无需重启工具。
+
+### Q：怎么知道工具在跑还是已经关了？
+
+任务栏 / Alt+Tab 看有没有 "Flow Harvester" 窗口。关了窗口 = 工具完全停止。
 
 ---
 
@@ -102,24 +104,23 @@ FlowHarvester.exe
 
 带上这三样东西：
 
-1. 浏览器里出问题页面的截图
-2. 命令窗口最后 30 行的内容（右键标记复制）
+1. 工具窗口里出问题页面的截图
+2. `%LOCALAPPDATA%\FlowHarvester\logs\app.log` 最后 50 行（或全部 zip 起来发）
 3. 出问题的任务编号（形如 `T_20260503T123456_abcdef`）
 
-日志位置：`%LOCALAPPDATA%\FlowHarvester\logs\` — 把里面 `worker_*.log` 和 `scheduler.log` 一起打包发过去。
+如果是启动失败，附上 `%LOCALAPPDATA%\FlowHarvester\logs\crash.log`。
 
 ---
 
 ## 附录 A — 开发者从源码运行（不需要打包）
 
-如果你是开发者要直接跑代码（修 bug / 加功能）：
+如果你是开发者要直接跑代码：
 
 1. 装 Python 3.10+ 和 Git。
 2. `git clone <repo>` + `cd Flow-picker-tool`
-3. 双击 `setup.bat`（建 venv + 装依赖）
-4. 双击 `start.bat`
-
-源码模式和打包模式行为一致。
+3. `python -m venv .venv && .venv\Scripts\activate`
+4. `pip install -e ".[dev]"`
+5. `python -m app`（启原生窗口）或 `flow-harvester serve`（启 server，浏览器自己开）
 
 ## 附录 B — 开发者打包 exe
 

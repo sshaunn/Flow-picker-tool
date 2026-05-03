@@ -22,6 +22,10 @@ for pkg in (
     "fastapi", "starlette", "uvicorn", "anyio", "h11",
     "websockets", "wsproto", "multipart", "jinja2", "patchright",
     "pydantic", "pydantic_core",
+    # pywebview wraps the dashboard UI in a native window (Edge
+    # WebView2 on Win, WKWebView on macOS). collect_all grabs its
+    # platform-specific JS bridge files + the WebView2Loader DLL.
+    "webview",
 ):
     pkg_datas, pkg_binaries, pkg_hidden = collect_all(pkg)
     datas += pkg_datas
@@ -69,6 +73,11 @@ a = Analysis(
         "uvicorn.protocols.http.auto",
         "uvicorn.protocols.websockets.auto",
         "uvicorn.lifespan.on",
+        # pywebview's GUI backend is selected at runtime; PyInstaller
+        # can't see the import. Force-include the Windows + macOS
+        # backends so the same spec works on both build hosts.
+        "webview.platforms.edgechromium",
+        "webview.platforms.cocoa",
     ],
     hookspath=[],
     hooksconfig={},
@@ -92,7 +101,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
-    console=True,  # Keep cmd window visible — customers see logs + Ctrl+C
+    console=False,  # Native window via pywebview — no cmd window flash
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
