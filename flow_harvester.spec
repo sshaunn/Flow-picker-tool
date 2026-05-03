@@ -35,7 +35,12 @@ for pkg in (
 # HTMX from CDN, no local static files to ship.)
 datas += [
     ("app/web/templates", "app/web/templates"),
+    # Both yaml configs required at runtime: settings.yaml (loader
+    # default) + flow-selectors.yaml (Flow DOM selector map). Customer
+    # workstations.yaml is gitignored / not needed in the bundle since
+    # the app reads workstations from the SQLite DB now.
     ("config/settings.yaml", "config"),
+    ("config/flow-selectors.yaml", "config"),
 ]
 
 
