@@ -12,14 +12,25 @@ worker that re-uses the customer's installed Chrome profile.
 
 ## Quick start
 
-### Windows (customer install)
+### Windows (customer install — bundled exe)
 
-1. Install **Google Chrome** and **Python 3.10+** (tick "Add Python to PATH").
-2. Drop the project folder somewhere stable (e.g. `D:\FlowHarvester\`).
-3. Double-click `setup.bat` once.
-4. Double-click `start.bat` whenever you want to use it. Browser opens to the dashboard automatically.
+The customer never installs Python — they just need Chrome.
+
+1. Install **Google Chrome**.
+2. Unzip `FlowHarvester-bundle.zip` somewhere stable (e.g. `D:\FlowHarvester\`).
+3. Double-click `FlowHarvester.exe`. Dashboard opens in the default browser.
 
 Detailed walk-through: [docs/customer-install-windows.md](docs/customer-install-windows.md).
+
+### Building the bundle (developer, run on Win11 once)
+
+```cmd
+setup.bat        :: one-time venv + deps
+build.bat zip    :: produces FlowHarvester-bundle.zip
+```
+
+PyInstaller stages everything into `dist\FlowHarvester\` then zips it.
+Ship the zip to the customer.
 
 ### macOS / Linux (developer)
 

@@ -66,5 +66,7 @@ dist/
 build/
 tmp/
 temp/
+FlowHarvester-bundle.zip
+*.spec.bak
 
 docs/config/workstations.yaml.bak
