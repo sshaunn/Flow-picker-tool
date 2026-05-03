@@ -128,6 +128,63 @@ def test_bulk_import_per_row_flow_mode_override(app_config) -> None:
     assert by_segment["C"]["flow_mode"] is None
 
 
+def test_bulk_import_multi_asset_pipe_separator(app_config) -> None:
+    """``a.png|b.png`` in source_asset_path → both attached as ordered assets."""
+    csv_text = (
+        "sku_id,creative_id,segment_id,video_prompt,target_count,"
+        "source_asset_path,asset_kind\n"
+        "s,multi,A,p,2,a.png|b.png,reference\n"
+    )
+    with _client(app_config) as client:
+        files = [
+            ("csv_file", ("tasks.csv", io.BytesIO(csv_text.encode("utf-8")), "text/csv")),
+            ("images", ("a.png", io.BytesIO(_PNG), "image/png")),
+            ("images", ("b.png", io.BytesIO(_PNG), "image/png")),
+        ]
+        resp = client.post("/api/tasks/bulk-import", files=files)
+        assert resp.status_code == 201, resp.text
+        tid = resp.json()["task_ids"][0]
+        detail = client.get(f"/api/tasks/{tid}").json()
+    assert len(detail["assets"]) == 2
+    assert [a["order"] for a in detail["assets"]] == [1, 2]
+
+
+def test_bulk_import_strips_path_prefix_in_csv(app_config) -> None:
+    """Customer pastes ``input/images/foo.png`` in CSV — bulk should
+    match by basename so the user doesn't have to rewrite paths."""
+    csv_text = (
+        "sku_id,creative_id,segment_id,video_prompt,target_count,source_asset_path\n"
+        "s,prefix,A,p,2,input/images/foo.png\n"
+    )
+    with _client(app_config) as client:
+        files = [
+            ("csv_file", ("tasks.csv", io.BytesIO(csv_text.encode("utf-8")), "text/csv")),
+            ("images", ("foo.png", io.BytesIO(_PNG), "image/png")),
+        ]
+        resp = client.post("/api/tasks/bulk-import", files=files)
+    assert resp.status_code == 201
+    assert resp.json()["inserted"] == 1
+
+
+def test_bulk_import_accepts_legacy_source_asset_type_alias(app_config) -> None:
+    """Old CLI-format CSVs use ``source_asset_type`` instead of
+    ``asset_kind``; bulk should fall back to that alias."""
+    csv_text = (
+        "sku_id,creative_id,segment_id,video_prompt,target_count,"
+        "source_asset_path,source_asset_type\n"
+        "s,legacy,A,p,2,a.png,first_frame\n"
+    )
+    with _client(app_config) as client:
+        files = [
+            ("csv_file", ("tasks.csv", io.BytesIO(csv_text.encode("utf-8")), "text/csv")),
+            ("images", ("a.png", io.BytesIO(_PNG), "image/png")),
+        ]
+        resp = client.post("/api/tasks/bulk-import", files=files)
+        tid = resp.json()["task_ids"][0]
+        detail = client.get(f"/api/tasks/{tid}").json()
+    assert detail["assets"][0]["kind"] == "first_frame"
+
+
 def test_bulk_form_page_renders(app_config) -> None:
     with _client(app_config) as client:
         resp = client.get("/tasks/bulk")

@@ -212,13 +212,31 @@ async def bulk_import_route(
                 asset_ref = (row.get("source_asset_path") or "").strip()
                 if not asset_ref:
                     raise ValueError("source_asset_path is empty")
-                staged = by_basename.get(asset_ref) or by_basename.get(
-                    asset_ref.split("/")[-1]
+                # Pipe-separated multi-asset support: same shape as the
+                # legacy CLI importer so existing customer CSVs work.
+                # Path prefixes (``input/images/p1i1.jpg``) are stripped
+                # to the basename so the user can paste in whatever path
+                # form their spreadsheet has.
+                asset_refs = [
+                    p.strip().split("/")[-1].split("\\")[-1]
+                    for p in asset_ref.split("|") if p.strip()
+                ]
+                if not asset_refs:
+                    raise ValueError("source_asset_path has no entries")
+                staged_paths: list[Path] = []
+                for ref in asset_refs:
+                    staged = by_basename.get(ref)
+                    if staged is None:
+                        raise ValueError(
+                            f"image {ref!r} not in uploaded files"
+                        )
+                    staged_paths.append(staged)
+                # ``asset_kind`` is the new column; accept the legacy
+                # ``source_asset_type`` as an alias so old CSVs work.
+                kind = (
+                    (row.get("asset_kind") or row.get("source_asset_type")
+                     or "reference").strip()
                 )
-                if staged is None:
-                    raise ValueError(
-                        f"image {asset_ref!r} not in uploaded files"
-                    )
                 target = int((row.get("target_count") or "").strip() or "0")
                 draft = TaskDraft(
                     sku_id=(row.get("sku_id") or "").strip(),
@@ -238,11 +256,10 @@ async def bulk_import_route(
                         and str(row["max_retry_count"]).strip() != ""
                         else None
                     ),
-                    assets=[AssetDraft(
-                        path=staged,
-                        kind=(row.get("asset_kind") or "reference").strip(),
-                        copy_into_managed_dir=True,
-                    )],
+                    assets=[
+                        AssetDraft(path=p, kind=kind, copy_into_managed_dir=True)
+                        for p in staged_paths
+                    ],
                     flow_mode=_row_flow_mode(row),
                 )
                 new_id = create_task(
