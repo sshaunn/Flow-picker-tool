@@ -42,6 +42,40 @@ def _resource_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+def _find_bundled_yaml(rel: str) -> Path:
+    """Locate a bundled yaml across every PyInstaller layout we've seen
+    in the wild. Some PyInstaller builds drop datas into ``_MEIPASS``,
+    others into ``_internal/`` next to the exe, so try them all and
+    return the first match. Raises with a helpful list if none exist.
+    """
+    candidates: list[Path] = []
+    seen: set[Path] = set()
+
+    def _add(p: Path) -> None:
+        try:
+            r = p.resolve()
+        except (OSError, RuntimeError):
+            r = p
+        if r not in seen:
+            seen.add(r)
+            candidates.append(p)
+
+    _add(_resource_root() / rel)
+    exe_dir = Path(sys.executable).resolve().parent
+    _add(exe_dir / rel)
+    _add(exe_dir / "_internal" / rel)
+    _add(Path.cwd() / rel)
+
+    for path in candidates:
+        if path.exists():
+            return path
+
+    listing = "\n  - ".join(str(p) for p in candidates)
+    raise FileNotFoundError(
+        f"Could not locate bundled resource {rel!r}. Looked in:\n  - {listing}",
+    )
+
+
 def _pick_free_port(preferred: int) -> int:
     """Return ``preferred`` if available, else the OS-assigned next free
     port. Avoids the customer-side "port 8080 in use" crash in favor of
@@ -98,13 +132,20 @@ def _setup_file_logging() -> None:
 
 
 def main() -> None:
-    # PyInstaller drops bundled data files alongside the exe; chdir into
-    # there so default config / templates resolve correctly.
+    # PyInstaller drops bundled data files alongside the exe; chdir to
+    # the resource root so any incidental relative-path lookups still
+    # resolve. Absolute paths below don't need this, but keep it for
+    # paranoia.
     os.chdir(_resource_root())
 
-    settings_path = Path("config/settings.yaml")
-    if not settings_path.exists():
-        settings_path = _resource_root() / "config" / "settings.yaml"
+    settings_path = _find_bundled_yaml("config/settings.yaml")
+    selectors_path = _find_bundled_yaml("config/flow-selectors.yaml")
+    # The worker imports flow_selectors lazily; tell it where the
+    # bundled yaml lives via env var so it doesn't fall back to a
+    # cwd-relative ``config/flow-selectors.yaml`` that won't exist.
+    os.environ.setdefault(
+        "FLOW_HARVESTER_SELECTORS_YAML", str(selectors_path),
+    )
 
     from app.config.loader import load_settings
     from app.web.server import create_app

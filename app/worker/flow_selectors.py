@@ -96,8 +96,35 @@ class FlowSelectorsConfig(BaseModel):
     popup_dismiss_buttons: list[str] = Field(default_factory=list)
 
 
-def load_flow_selectors(path: Path | str = "config/flow-selectors.yaml") -> FlowSelectorsConfig:
-    p = Path(path)
+_DEFAULT_SELECTORS_REL = "config/flow-selectors.yaml"
+
+
+def _resolve_selectors_path(path: Path | str | None) -> Path:
+    """Find the selectors yaml across dev / PyInstaller layouts.
+
+    Priority:
+    1. Explicit caller-supplied path (when truthy and exists).
+    2. ``FLOW_HARVESTER_SELECTORS_YAML`` env var (set by the bundled
+       ``__main__.py`` after it locates the file).
+    3. ``config/flow-selectors.yaml`` relative to cwd (dev path).
+    """
+    if path:
+        candidate = Path(path)
+        if candidate.exists():
+            return candidate
+    import os
+    env = os.environ.get("FLOW_HARVESTER_SELECTORS_YAML")
+    if env:
+        candidate = Path(env)
+        if candidate.exists():
+            return candidate
+    return Path(_DEFAULT_SELECTORS_REL)
+
+
+def load_flow_selectors(
+    path: Path | str | None = None,
+) -> FlowSelectorsConfig:
+    p = _resolve_selectors_path(path)
     if not p.exists():
         raise FileNotFoundError(f"flow-selectors.yaml not found: {p}")
     raw: Any = yaml.safe_load(p.read_text(encoding="utf-8"))
