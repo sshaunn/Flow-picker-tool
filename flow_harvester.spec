@@ -28,12 +28,13 @@ for pkg in (
     binaries += pkg_binaries
     hiddenimports += pkg_hidden
 
-# Project's own template + static + default config — paths stay flat
-# under the bundle root so ``app/web/server.py`` finds them via
+# Project's own template + default config — paths stay flat under the
+# bundle root so ``app/web/server.py`` finds them via
 # ``Path(__file__).parent / 'templates'`` after the chdir in __main__.
+# (app/web/static is intentionally not bundled — V1 pulls Tailwind +
+# HTMX from CDN, no local static files to ship.)
 datas += [
     ("app/web/templates", "app/web/templates"),
-    ("app/web/static", "app/web/static"),
     ("config/settings.yaml", "config"),
 ]
 
