@@ -136,13 +136,29 @@ async def bulk_import_route(
 ) -> BulkImportSummary:
     """Import many tasks at once from a CSV + a folder of images.
 
-    CSV columns: ``sku_id, creative_id, segment_id, video_prompt,
-    target_count, source_asset_path``. ``source_asset_path`` references
-    one of the uploaded image files by basename — the server resolves it
-    after staging the uploads under a temp dir.
+    Required CSV columns: ``sku_id, creative_id, segment_id,
+    video_prompt, target_count``.
 
-    Optional columns: ``sequence_index``, ``depends_on_task_id``,
-    ``max_retry_count``, ``asset_kind``. Anything not in the CSV uses the
+    Asset columns — pick the one matching ``asset_kind``:
+
+    * ``asset_kind=reference`` (default): use ``source_asset_path``,
+      pipe-separated for multiple images. ``source_start_path`` /
+      ``source_end_path`` must be empty.
+    * ``asset_kind=frames_pair``: use ``source_start_path`` AND
+      ``source_end_path`` (one image each). ``source_asset_path`` must
+      be empty. Auto-sets ``mode_subtab=frames``.
+    * ``asset_kind=first_frame``: use ``source_start_path`` only.
+      ``source_end_path`` and ``source_asset_path`` must be empty.
+      Auto-sets ``mode_subtab=frames``. (Veo synthesizes the ending.)
+    * ``asset_kind=last_frame`` / ``previous_segment_frame``: legacy
+      kinds still accepted via ``source_asset_path``.
+
+    Cross-column conflicts (e.g. asset_kind=first_frame but the image
+    written into source_asset_path) are rejected with a clear error so
+    a typo doesn't silently produce a misrouted task.
+
+    Other optional columns: ``sequence_index``, ``depends_on_task_id``,
+    ``max_retry_count``, ``mode_*``. Anything not in the CSV uses the
     same defaults as the single-task form.
     """
     import csv as _csv
@@ -164,7 +180,9 @@ async def bulk_import_route(
             return None
         return str(value).strip()
 
-    def _row_flow_mode(row: dict) -> FlowModeSpec | None:
+    def _row_flow_mode(
+        row: dict, *, force_subtab_frames: bool = False,
+    ) -> FlowModeSpec | None:
         fields = {
             "tab": _empty_or_str(row.get("mode_tab")),
             "subtab": _empty_or_str(row.get("mode_subtab")),
@@ -173,9 +191,108 @@ async def bulk_import_route(
             "duration_sec": _empty_or_int(row.get("mode_duration_sec")),
             "model": _empty_or_str(row.get("mode_model")),
         }
+        # Frames-mode rows auto-promote subtab so the worker switches
+        # to the Frames sub-tab even if the operator forgot the column.
+        # Only overrides empty / "ingredients" — explicit "frames"
+        # already there is preserved.
+        if force_subtab_frames and fields["subtab"] in (None, "ingredients"):
+            fields["subtab"] = "frames"
         if all(v is None for v in fields.values()):
             return None
         return FlowModeSpec(**fields)
+
+    def _split_pipe(raw: str) -> list[str]:
+        return [
+            p.strip().split("/")[-1].split("\\")[-1]
+            for p in (raw or "").split("|") if p.strip()
+        ]
+
+    def _resolve_row_assets(
+        row: dict, by_basename: dict[str, Path],
+    ) -> tuple[list[tuple[Path, str]], bool]:
+        """Resolve a CSV row's asset references to ``(path, kind)``
+        pairs and return whether the row is in Frames mode (caller uses
+        this to force ``mode_subtab=frames``).
+
+        Validates cross-column conflicts so an operator who typo'd
+        ``asset_kind=first_frame`` while leaving the image in
+        ``source_asset_path`` gets rejected loudly instead of silently
+        ending up as a 'reference' upload that would route through
+        Ingredients.
+        """
+        kind = (
+            (row.get("asset_kind") or row.get("source_asset_type")
+             or "reference").strip()
+        )
+        ref = (row.get("source_asset_path") or "").strip()
+        start = (row.get("source_start_path") or "").strip()
+        end = (row.get("source_end_path") or "").strip()
+
+        def _stage(name: str) -> Path:
+            cleaned = name.strip().split("/")[-1].split("\\")[-1]
+            staged = by_basename.get(cleaned)
+            if staged is None:
+                raise ValueError(f"图片 {cleaned!r} 不在上传文件中")
+            return staged
+
+        is_frames_mode = kind in {"frames_pair", "first_frame", "last_frame"}
+
+        if kind == "frames_pair":
+            if ref:
+                raise ValueError(
+                    "asset_kind=frames_pair 不能用 source_asset_path 列；"
+                    "改用 source_start_path 和 source_end_path 两列"
+                )
+            if not start:
+                raise ValueError("frames_pair 必须填 source_start_path")
+            if not end:
+                raise ValueError("frames_pair 必须填 source_end_path")
+            return ([(_stage(start), "first_frame"),
+                     (_stage(end), "last_frame")], True)
+
+        if kind == "first_frame":
+            if ref:
+                raise ValueError(
+                    "asset_kind=first_frame 不能用 source_asset_path 列；"
+                    "改用 source_start_path 列"
+                )
+            if end:
+                raise ValueError(
+                    "asset_kind=first_frame 时 source_end_path 必须为空"
+                )
+            if not start:
+                raise ValueError("first_frame 必须填 source_start_path")
+            return ([(_stage(start), "first_frame")], True)
+
+        if kind == "last_frame":
+            if ref:
+                raise ValueError(
+                    "asset_kind=last_frame 不能用 source_asset_path 列；"
+                    "改用 source_end_path 列"
+                )
+            if start:
+                raise ValueError(
+                    "asset_kind=last_frame 时 source_start_path 必须为空"
+                )
+            if not end:
+                raise ValueError("last_frame 必须填 source_end_path")
+            return ([(_stage(end), "last_frame")], True)
+
+        # Non-frames kinds (reference / previous_segment_frame).
+        # Reject any frames columns to catch a likely typo (e.g.
+        # operator put a start frame in source_asset_path but forgot
+        # to switch asset_kind to first_frame).
+        if start or end:
+            raise ValueError(
+                f"asset_kind={kind} 时不能填 source_start_path "
+                "或 source_end_path（这两列只用于 frames 模式）"
+            )
+        if not ref:
+            raise ValueError("source_asset_path 为空")
+        names = _split_pipe(ref)
+        if not names:
+            raise ValueError("source_asset_path 没有有效条目")
+        return ([(_stage(n), kind) for n in names], False)
 
     try:
         text = (await csv_file.read()).decode("utf-8-sig")
@@ -209,33 +326,8 @@ async def bulk_import_route(
         errors: list[str] = []
         for line_no, row in enumerate(rows, start=2):
             try:
-                asset_ref = (row.get("source_asset_path") or "").strip()
-                if not asset_ref:
-                    raise ValueError("source_asset_path is empty")
-                # Pipe-separated multi-asset support: same shape as the
-                # legacy CLI importer so existing customer CSVs work.
-                # Path prefixes (``input/images/p1i1.jpg``) are stripped
-                # to the basename so the user can paste in whatever path
-                # form their spreadsheet has.
-                asset_refs = [
-                    p.strip().split("/")[-1].split("\\")[-1]
-                    for p in asset_ref.split("|") if p.strip()
-                ]
-                if not asset_refs:
-                    raise ValueError("source_asset_path has no entries")
-                staged_paths: list[Path] = []
-                for ref in asset_refs:
-                    staged = by_basename.get(ref)
-                    if staged is None:
-                        raise ValueError(
-                            f"image {ref!r} not in uploaded files"
-                        )
-                    staged_paths.append(staged)
-                # ``asset_kind`` is the new column; accept the legacy
-                # ``source_asset_type`` as an alias so old CSVs work.
-                kind = (
-                    (row.get("asset_kind") or row.get("source_asset_type")
-                     or "reference").strip()
+                resolved, is_frames_row = _resolve_row_assets(
+                    row, by_basename,
                 )
                 target = int((row.get("target_count") or "").strip() or "0")
                 draft = TaskDraft(
@@ -257,10 +349,12 @@ async def bulk_import_route(
                         else None
                     ),
                     assets=[
-                        AssetDraft(path=p, kind=kind, copy_into_managed_dir=True)
-                        for p in staged_paths
+                        AssetDraft(path=p, kind=k, copy_into_managed_dir=True)
+                        for (p, k) in resolved
                     ],
-                    flow_mode=_row_flow_mode(row),
+                    flow_mode=_row_flow_mode(
+                        row, force_subtab_frames=is_frames_row,
+                    ),
                 )
                 new_id = create_task(
                     conn, draft,

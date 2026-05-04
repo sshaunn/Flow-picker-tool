@@ -192,6 +192,37 @@ CSV 例子（带模式覆盖）：
         sku_001,...,image1.png|image2.png|image3.png,...
 
 
+Frames 模式的批量导入：
+    Frames 任务必须用专用的 source_start_path / source_end_path 列，
+    不要把图片写到 source_asset_path 里（会被拒绝以避免错传）。
+
+    必填列规则（按 asset_kind 选其一）：
+
+        asset_kind         用哪些列                            说明
+        ----------------   ----------------------------------  ------------
+        reference（默认）   source_asset_path                  参考图
+        frames_pair        source_start_path + source_end_path 起止帧对
+        first_frame        source_start_path                   仅起始帧
+
+    错填会被拒绝（这一行报错并跳过），举例：
+      * asset_kind=first_frame 但图片写在 source_asset_path 列
+        → 报错: "asset_kind=first_frame 不能用 source_asset_path 列"
+      * asset_kind=frames_pair 但只填 source_start_path
+        → 报错: "frames_pair 必须填 source_end_path"
+      * asset_kind=reference 但填了 source_start_path
+        → 报错: "reference 时不能填 source_start_path"
+
+    Frames CSV 例子：
+
+        sku_id,creative_id,segment_id,video_prompt,target_count,asset_kind,source_start_path,source_end_path
+        sku_001,c1,A,起止帧任务,2,frames_pair,start.png,end.png
+        sku_001,c1,B,只设起始帧,2,first_frame,opener.png,
+        sku_001,c1,C,常规参考图,3,reference,,
+
+    asset_kind 是 frames_pair / first_frame 时无需填 mode_subtab，
+    系统自动设为 frames。
+
+
 ----------------------------------------------------------------
 四、运行 & 监控
 ----------------------------------------------------------------

@@ -9,19 +9,43 @@
     <p class="font-medium mb-1">使用方法</p>
     <ol class="list-decimal list-inside space-y-0.5 text-xs">
       <li>准备一个 UTF-8 编码的 CSV 文件，每行一个任务。</li>
-      <li>必填列：<code class="font-mono bg-white px-1 rounded">sku_id, creative_id, segment_id, video_prompt, target_count, source_asset_path</code></li>
+      <li>必填列：<code class="font-mono bg-white px-1 rounded">sku_id, creative_id, segment_id, video_prompt, target_count</code> + <strong>素材列（看下表）</strong></li>
       <li>可选基础列：<code class="font-mono bg-white px-1 rounded">sequence_index, depends_on_task_id, max_retry_count, asset_kind</code></li>
+      <li>素材列怎么填（按 <code class="font-mono">asset_kind</code> 选其一，不能混填）：
+        <table class="w-full mt-1 text-xs border border-blue-300 bg-white">
+          <thead class="bg-blue-100"><tr>
+            <th class="px-1.5 py-1 text-left">asset_kind</th>
+            <th class="px-1.5 py-1 text-left">用哪些列</th>
+            <th class="px-1.5 py-1 text-left">说明</th>
+          </tr></thead>
+          <tbody class="divide-y divide-blue-200">
+            <tr><td class="px-1.5 py-1"><code>reference</code>（默认）</td>
+                <td class="px-1.5 py-1"><code>source_asset_path</code></td>
+                <td class="px-1.5 py-1">参考图，多张用 <code>|</code> 分隔</td></tr>
+            <tr><td class="px-1.5 py-1"><code>frames_pair</code></td>
+                <td class="px-1.5 py-1"><code>source_start_path</code> + <code>source_end_path</code></td>
+                <td class="px-1.5 py-1">起止帧对（自动设 subtab=frames）</td></tr>
+            <tr><td class="px-1.5 py-1"><code>first_frame</code></td>
+                <td class="px-1.5 py-1"><code>source_start_path</code></td>
+                <td class="px-1.5 py-1">仅起始帧（自动设 subtab=frames）</td></tr>
+          </tbody>
+        </table>
+        <p class="mt-1 text-[11px] text-blue-700">
+          ⚠ 写错列会被当成错误行拒绝。比如 asset_kind=first_frame 但图片写在
+          source_asset_path 里，导入时会报错并跳过那一行（不会静默上传到错的槽位）。
+        </p>
+      </li>
       <li>可选生成参数列（每行可独立覆盖账号默认值，留空 = 用账号默认）：
         <ul class="list-disc list-inside ml-4 mt-0.5">
           <li><code class="font-mono bg-white px-1 rounded">mode_model</code>：例 <code>Veo 3.1 - Fast</code> / <code>Veo 3.1 - Quality</code></li>
           <li><code class="font-mono bg-white px-1 rounded">mode_output_count</code>：1 / 2 / 3 / 4</li>
           <li><code class="font-mono bg-white px-1 rounded">mode_duration_sec</code>：4 / 6 / 8</li>
           <li><code class="font-mono bg-white px-1 rounded">mode_aspect</code>：9:16 / 16:9 / 1:1</li>
-          <li><code class="font-mono bg-white px-1 rounded">mode_tab</code>、<code class="font-mono bg-white px-1 rounded">mode_subtab</code>（一般无需填）</li>
+          <li><code class="font-mono bg-white px-1 rounded">mode_tab</code>、<code class="font-mono bg-white px-1 rounded">mode_subtab</code>（一般无需填，frames_pair / first_frame 自动设 subtab）</li>
         </ul>
       </li>
-      <li><code class="font-mono bg-white px-1 rounded">source_asset_path</code> 填图片文件名（例如 <code class="font-mono">image_001.png</code>），不要写完整路径。</li>
-      <li>同时把所有用到的图片一起上传。</li>
+      <li>所有路径只填<strong>文件名</strong>（例如 <code class="font-mono">image_001.png</code>），不要写完整路径。</li>
+      <li>同时把所有用到的图片一起上传到下面的"所有用到的图片"输入框。</li>
     </ol>
   </div>
 

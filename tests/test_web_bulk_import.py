@@ -168,11 +168,12 @@ def test_bulk_import_strips_path_prefix_in_csv(app_config) -> None:
 
 def test_bulk_import_accepts_legacy_source_asset_type_alias(app_config) -> None:
     """Old CLI-format CSVs use ``source_asset_type`` instead of
-    ``asset_kind``; bulk should fall back to that alias."""
+    ``asset_kind`` for the COLUMN NAME (the legacy alias). Routing
+    rules are the same — frame kinds use source_start_path / source_end_path."""
     csv_text = (
         "sku_id,creative_id,segment_id,video_prompt,target_count,"
-        "source_asset_path,source_asset_type\n"
-        "s,legacy,A,p,2,a.png,first_frame\n"
+        "source_asset_type,source_start_path\n"
+        "s,legacy,A,p,2,first_frame,a.png\n"
     )
     with _client(app_config) as client:
         files = [
@@ -183,6 +184,123 @@ def test_bulk_import_accepts_legacy_source_asset_type_alias(app_config) -> None:
         tid = resp.json()["task_ids"][0]
         detail = client.get(f"/api/tasks/{tid}").json()
     assert detail["assets"][0]["kind"] == "first_frame"
+
+
+def test_bulk_import_frames_pair_uses_explicit_start_end_columns(app_config) -> None:
+    """frames_pair routes start.png -> first_frame, end.png -> last_frame
+    via the dedicated columns; mode_subtab auto-promotes to 'frames'."""
+    csv_text = (
+        "sku_id,creative_id,segment_id,video_prompt,target_count,"
+        "asset_kind,source_asset_path,source_start_path,source_end_path\n"
+        "sku,cre,F,frames task,2,frames_pair,,start.png,end.png\n"
+    )
+    with _client(app_config) as client:
+        files = [
+            ("csv_file", ("tasks.csv", io.BytesIO(csv_text.encode("utf-8")), "text/csv")),
+            ("images", ("start.png", io.BytesIO(_PNG), "image/png")),
+            ("images", ("end.png", io.BytesIO(_PNG), "image/png")),
+        ]
+        resp = client.post("/api/tasks/bulk-import", files=files)
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["inserted"] == 1, body
+    task_id = body["task_ids"][0]
+
+    from app.db.connection import connect
+    from app.tasks.repository import get_task, get_task_assets
+    with connect(app_config.db_path) as conn:
+        record = get_task(conn, task_id)
+        assets = sorted(get_task_assets(conn, task_id), key=lambda r: r[0])
+    assert [a[2] for a in assets] == ["first_frame", "last_frame"]
+    assert "start.png" in assets[0][1]
+    assert "end.png" in assets[1][1]
+    assert record.flow_mode is not None
+    assert record.flow_mode.subtab == "frames"
+
+
+def test_bulk_import_first_frame_only(app_config) -> None:
+    """first_frame uses source_start_path only; mode_subtab auto-frames."""
+    csv_text = (
+        "sku_id,creative_id,segment_id,video_prompt,target_count,"
+        "asset_kind,source_start_path\n"
+        "sku,cre,F,first only,1,first_frame,opener.png\n"
+    )
+    with _client(app_config) as client:
+        files = [
+            ("csv_file", ("tasks.csv", io.BytesIO(csv_text.encode("utf-8")), "text/csv")),
+            ("images", ("opener.png", io.BytesIO(_PNG), "image/png")),
+        ]
+        resp = client.post("/api/tasks/bulk-import", files=files)
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["inserted"] == 1
+
+    from app.db.connection import connect
+    from app.tasks.repository import get_task, get_task_assets
+    with connect(app_config.db_path) as conn:
+        record = get_task(conn, body["task_ids"][0])
+        assets = get_task_assets(conn, body["task_ids"][0])
+    assert len(assets) == 1
+    assert assets[0][2] == "first_frame"
+    assert record.flow_mode.subtab == "frames"
+
+
+def test_bulk_import_rejects_first_frame_image_in_wrong_column(app_config) -> None:
+    """The mistake the customer is most likely to make: typing the start
+    frame into source_asset_path instead of source_start_path. Must fail
+    loudly so they don't silently get a misrouted task."""
+    csv_text = (
+        "sku_id,creative_id,segment_id,video_prompt,target_count,"
+        "asset_kind,source_asset_path\n"
+        "sku,cre,F,wrong column,1,first_frame,opener.png\n"
+    )
+    with _client(app_config) as client:
+        files = [
+            ("csv_file", ("tasks.csv", io.BytesIO(csv_text.encode("utf-8")), "text/csv")),
+            ("images", ("opener.png", io.BytesIO(_PNG), "image/png")),
+        ]
+        resp = client.post("/api/tasks/bulk-import", files=files)
+    body = resp.json()
+    assert body["inserted"] == 0
+    assert body["skipped"] == 1
+    assert any("source_start_path" in e for e in body["errors"])
+
+
+def test_bulk_import_rejects_frames_pair_missing_end(app_config) -> None:
+    csv_text = (
+        "sku_id,creative_id,segment_id,video_prompt,target_count,"
+        "asset_kind,source_start_path,source_end_path\n"
+        "sku,cre,F,no end,1,frames_pair,start.png,\n"
+    )
+    with _client(app_config) as client:
+        files = [
+            ("csv_file", ("tasks.csv", io.BytesIO(csv_text.encode("utf-8")), "text/csv")),
+            ("images", ("start.png", io.BytesIO(_PNG), "image/png")),
+        ]
+        resp = client.post("/api/tasks/bulk-import", files=files)
+    body = resp.json()
+    assert body["inserted"] == 0
+    assert any("source_end_path" in e for e in body["errors"])
+
+
+def test_bulk_import_rejects_reference_with_frames_columns(app_config) -> None:
+    """Stuffing start/end columns on a non-frames row is a sure sign of
+    a CSV mistake — likely the operator forgot to set asset_kind."""
+    csv_text = (
+        "sku_id,creative_id,segment_id,video_prompt,target_count,"
+        "asset_kind,source_asset_path,source_start_path\n"
+        "sku,cre,F,wrong kind,1,reference,a.png,start.png\n"
+    )
+    with _client(app_config) as client:
+        files = [
+            ("csv_file", ("tasks.csv", io.BytesIO(csv_text.encode("utf-8")), "text/csv")),
+            ("images", ("a.png", io.BytesIO(_PNG), "image/png")),
+            ("images", ("start.png", io.BytesIO(_PNG), "image/png")),
+        ]
+        resp = client.post("/api/tasks/bulk-import", files=files)
+    body = resp.json()
+    assert body["inserted"] == 0
+    assert any("frames" in e for e in body["errors"])
 
 
 def test_bulk_form_page_renders(app_config) -> None:
