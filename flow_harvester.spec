@@ -8,9 +8,13 @@ Build with::
 Output: ``dist/FlowHarvester/FlowHarvester.exe`` plus its DLL / data
 folder. Zip the ``dist/FlowHarvester/`` directory and ship to customers
 — they unzip and double-click the .exe, no Python needed.
+
+Bundle behavior: cmd window stays open (``console=True``) showing live
+logs; the entry point also opens the dashboard URL in the customer's
+default browser.
 """
 
-from PyInstaller.utils.hooks import collect_all, collect_data_files
+from PyInstaller.utils.hooks import collect_all
 
 
 # ----- Bundle every package data file these libraries ship -----
@@ -22,10 +26,6 @@ for pkg in (
     "fastapi", "starlette", "uvicorn", "anyio", "h11",
     "websockets", "wsproto", "multipart", "jinja2", "patchright",
     "pydantic", "pydantic_core",
-    # pywebview wraps the dashboard UI in a native window (Edge
-    # WebView2 on Win, WKWebView on macOS). collect_all grabs its
-    # platform-specific JS bridge files + the WebView2Loader DLL.
-    "webview",
 ):
     pkg_datas, pkg_binaries, pkg_hidden = collect_all(pkg)
     datas += pkg_datas
@@ -35,14 +35,8 @@ for pkg in (
 # Project's own template + default config — paths stay flat under the
 # bundle root so ``app/web/server.py`` finds them via
 # ``Path(__file__).parent / 'templates'`` after the chdir in __main__.
-# (app/web/static is intentionally not bundled — V1 pulls Tailwind +
-# HTMX from CDN, no local static files to ship.)
 datas += [
     ("app/web/templates", "app/web/templates"),
-    # Both yaml configs required at runtime: settings.yaml (loader
-    # default) + flow-selectors.yaml (Flow DOM selector map). Customer
-    # workstations.yaml is gitignored / not needed in the bundle since
-    # the app reads workstations from the SQLite DB now.
     ("config/settings.yaml", "config"),
     ("config/flow-selectors.yaml", "config"),
 ]
@@ -54,8 +48,6 @@ a = Analysis(
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports + [
-        # Sub-modules dynamically imported by the runtime that
-        # PyInstaller's static analysis sometimes misses.
         "app.web.routes.pages",
         "app.web.routes.tasks",
         "app.web.routes.workstations",
@@ -73,11 +65,6 @@ a = Analysis(
         "uvicorn.protocols.http.auto",
         "uvicorn.protocols.websockets.auto",
         "uvicorn.lifespan.on",
-        # pywebview's GUI backend is selected at runtime; PyInstaller
-        # can't see the import. Force-include the Windows + macOS
-        # backends so the same spec works on both build hosts.
-        "webview.platforms.edgechromium",
-        "webview.platforms.cocoa",
     ],
     hookspath=[],
     hooksconfig={},
@@ -101,7 +88,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
-    console=False,  # Native window via pywebview — no cmd window flash
+    console=True,  # cmd window stays open with live logs
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

@@ -1,22 +1,17 @@
-"""Native desktop entry point for the bundled customer install.
+"""Bundled entry point for the customer install.
 
-Goal: customer double-clicks ``FlowHarvester.exe`` and gets a single
-native window — no console, no separate browser tab. Internally we run
-the FastAPI server on a background thread and wrap it in pywebview,
-which uses Edge WebView2 on Windows 10/11 (already installed) and
-WKWebView on macOS.
+Customer double-clicks ``FlowHarvester.exe``, a cmd window opens
+showing live logs, and the dashboard auto-opens in their default
+browser. Closing the cmd window (or Ctrl+C) shuts everything down.
 
 Lifecycle:
 
-  startup  → uvicorn.Server boots on a daemon thread → wait for /healthz
-  display  → pywebview opens a window pointing at http://127.0.0.1:<port>/
-  shutdown → user closes the window → ``server.should_exit = True``,
-             daemon thread joins, FastAPI lifespan runs (stops scheduler
-             daemon, cancels any in-flight login Chrome window).
-
-If anything goes wrong before the window opens, we fall back to printing
-the traceback and pausing for input — better than a silent flash-and-
-disappear crash.
+  startup  → resolve bundled yaml paths
+           → boot uvicorn in the foreground (blocks the cmd window)
+           → after a short delay, ``webbrowser.open`` to the dashboard
+  shutdown → user closes cmd window or hits Ctrl+C → uvicorn stops,
+             FastAPI lifespan runs (stops scheduler daemon, cancels any
+             in-flight login Chrome window).
 """
 
 from __future__ import annotations
@@ -27,10 +22,9 @@ import socket
 import sys
 import threading
 import time
-import urllib.request
+import webbrowser
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Optional
 
 
 def _resource_root() -> Path:
@@ -91,24 +85,10 @@ def _pick_free_port(preferred: int) -> int:
         return s.getsockname()[1]
 
 
-def _wait_for_server(url: str, timeout_sec: float = 30.0) -> bool:
-    """Poll the dashboard URL until it answers 200 or we hit timeout."""
-    deadline = time.monotonic() + timeout_sec
-    while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(url, timeout=1.0) as resp:
-                if resp.status == 200:
-                    return True
-        except Exception:  # noqa: BLE001 — server still starting
-            pass
-        time.sleep(0.2)
-    return False
-
-
 def _setup_file_logging() -> None:
-    """Without a console window, uvicorn / app loggers have no stdout to
-    write to. Route them to ``%LOCALAPPDATA%\\FlowHarvester\\logs\\app.log``
-    so customers can attach the file when they ping support."""
+    """Mirror logs to ``%LOCALAPPDATA%\\FlowHarvester\\logs\\app.log``
+    in addition to the cmd window, so customers can attach the file when
+    they ping support."""
     from app import paths as app_paths
     log_dir = app_paths.logs_dir()
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -126,23 +106,15 @@ def _setup_file_logging() -> None:
                  "flow_harvester.daemon", "flow_harvester.web",
                  "flow_harvester.login"):
         logger = logging.getLogger(name)
-        logger.handlers = [handler]
+        logger.addHandler(handler)
         logger.setLevel(logging.INFO)
-        logger.propagate = False
 
 
 def main() -> None:
-    # PyInstaller drops bundled data files alongside the exe; chdir to
-    # the resource root so any incidental relative-path lookups still
-    # resolve. Absolute paths below don't need this, but keep it for
-    # paranoia.
     os.chdir(_resource_root())
 
     settings_path = _find_bundled_yaml("config/settings.yaml")
     selectors_path = _find_bundled_yaml("config/flow-selectors.yaml")
-    # The worker imports flow_selectors lazily; tell it where the
-    # bundled yaml lives via env var so it doesn't fall back to a
-    # cwd-relative ``config/flow-selectors.yaml`` that won't exist.
     os.environ.setdefault(
         "FLOW_HARVESTER_SELECTORS_YAML", str(selectors_path),
     )
@@ -164,108 +136,46 @@ def main() -> None:
     port = _pick_free_port(preferred_port)
     url = f"http://127.0.0.1:{port}/"
 
-    server: Optional[uvicorn.Server] = None
+    # Banner so the customer immediately sees the dashboard URL even if
+    # the auto-open below is blocked by their browser settings.
+    print("=" * 60)
+    print(" Flow Harvester")
+    print("=" * 60)
+    print(f" Dashboard: {url}")
+    print(" Keep this window open while you use the tool.")
+    print(" Close this window (or Ctrl+C) to stop.")
+    print("=" * 60, flush=True)
 
-    def _run_server() -> None:
-        nonlocal server
-        config = uvicorn.Config(
-            app, host="127.0.0.1", port=port,
-            log_level="info", access_log=False,
-        )
-        server = uvicorn.Server(config)
-        server.run()
-
-    server_thread = threading.Thread(target=_run_server, daemon=True,
-                                     name="flow-harvester-uvicorn")
-    server_thread.start()
-
-    if not _wait_for_server(url + "healthz", timeout_sec=30.0):
-        raise RuntimeError(
-            f"Server did not respond on {url} within 30 seconds. "
-            "Check the log at %LOCALAPPDATA%\\FlowHarvester\\logs\\app.log",
-        )
-
-    # Native window — Edge WebView2 on Win10/11, WKWebView on macOS.
-    import webview
-    webview.create_window(
-        title="Flow Harvester",
-        url=url,
-        width=1280,
-        height=820,
-        min_size=(960, 600),
-        resizable=True,
-        confirm_close=False,
-    )
-    webview.start()
-
-    # Window closed → graceful shutdown.
-    if server is not None:
-        server.should_exit = True
-    server_thread.join(timeout=15.0)
-
-
-def _show_crash_dialog(traceback_text: str, crash_path: Optional[Path]) -> None:
-    """Best-effort customer-visible crash report.
-
-    Order of preference (each falls through if it can't talk to a UI):
-    1. Windows native MessageBox (always works on Win, no deps).
-    2. macOS ``osascript`` dialog.
-    3. Linux ``zenity`` if installed.
-    4. Silent — crash.log is already written, customer can find it.
-
-    Critically does NOT call ``input()`` because PyInstaller's
-    ``console=False`` bundle has no stdin and that path raises
-    "lost sys.stdin" which masks the original error.
-    """
-    location_hint = (
-        f"\n\nDetails: {crash_path}" if crash_path else ""
-    )
-    body = (
-        "Flow Harvester 启动失败 / failed to start.\n\n"
-        + traceback_text[-1500:]
-        + location_hint
-    )
-    if sys.platform == "win32":
+    def _open_browser() -> None:
+        time.sleep(2.0)
         try:
-            import ctypes
-            ctypes.windll.user32.MessageBoxW(
-                None, body, "Flow Harvester crash",
-                0x10,  # MB_ICONERROR
-            )
-            return
-        except Exception:  # noqa: BLE001
+            webbrowser.open(url)
+        except Exception:  # noqa: BLE001 — best-effort
             pass
-    if sys.platform == "darwin":
-        try:
-            import subprocess
-            subprocess.run([
-                "osascript", "-e",
-                f'display dialog {body!r} with title "Flow Harvester crash" with icon stop buttons {{"OK"}}',
-            ], check=False)
-            return
-        except Exception:  # noqa: BLE001
-            pass
-    try:
-        import subprocess
-        subprocess.run(
-            ["zenity", "--error", "--title=Flow Harvester crash",
-             f"--text={body}"],
-            check=False,
-        )
-    except Exception:  # noqa: BLE001
-        pass
+
+    threading.Thread(target=_open_browser, daemon=True,
+                     name="flow-harvester-open-browser").start()
+
+    config = uvicorn.Config(
+        app, host="127.0.0.1", port=port,
+        log_level="info", access_log=False,
+    )
+    server = uvicorn.Server(config)
+    server.run()
 
 
 if __name__ == "__main__":
     try:
         main()
+    except KeyboardInterrupt:
+        sys.exit(0)
     except SystemExit:
         raise
     except BaseException:  # noqa: BLE001 — we want everything
         import traceback
-        crash_path: Optional[Path] = None
-        # 1. Always write the traceback to a file first — even if the
-        #    UI fallbacks below all fail, the customer can grab this.
+        # Write the traceback to crash.log first so the customer can
+        # share the file even if they close the cmd window before
+        # reading it.
         try:
             from app import paths as app_paths
             crash_path = app_paths.logs_dir() / "crash.log"
@@ -276,6 +186,14 @@ if __name__ == "__main__":
                 traceback.print_exc(file=fh)
         except Exception:  # noqa: BLE001
             pass
-        # 2. Try to surface something native to the customer.
-        _show_crash_dialog(traceback.format_exc(), crash_path)
+        # cmd window is visible — print the traceback and pause so the
+        # customer can read it / screenshot it before closing.
+        print("\n" + "=" * 60, file=sys.stderr)
+        print(" Flow Harvester crashed", file=sys.stderr)
+        print("=" * 60, file=sys.stderr)
+        traceback.print_exc()
+        try:
+            input("\nPress Enter to close this window ...")
+        except Exception:  # noqa: BLE001
+            pass
         sys.exit(1)
