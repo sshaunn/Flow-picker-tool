@@ -110,6 +110,46 @@ def _setup_file_logging() -> None:
         logger.setLevel(logging.INFO)
 
 
+def _enforce_license() -> None:
+    """Refuse to boot if no valid license.key is present.
+
+    Only checks when running as the bundled exe (``sys.frozen``) so dev
+    iteration with ``python -m app`` doesn't need a license. Customers
+    can drop ``license.key`` either next to the exe (initial install)
+    or under ``%LOCALAPPDATA%\\FlowHarvester\\`` (operator-managed
+    persistent location). See ``app.license.find_license_file`` for
+    the full search order.
+
+    Raises ``LicenseError`` (handled by the outer crash handler in
+    ``__main__``) so the customer sees a friendly Chinese banner +
+    crash.log entry instead of a stack trace.
+    """
+    if not getattr(sys, "frozen", False):
+        return
+    from app.license import (
+        LicenseError, find_license_file, load_license_file,
+    )
+    path = find_license_file()
+    if path is None:
+        raise LicenseError(
+            "未找到授权文件 license.key — 请联系开发者获取，"
+            "把它放在 FlowHarvester.exe 所在目录或 "
+            "%LOCALAPPDATA%\\FlowHarvester\\ 下，再启动。"
+        )
+    payload = load_license_file(path)
+    expires_local = payload.expires_at.astimezone().strftime("%Y-%m-%d %H:%M")
+    print(
+        f"   授权: {payload.customer_id}, "
+        f"剩余 {payload.days_remaining} 天 (至 {expires_local})",
+        flush=True,
+    )
+    if payload.days_remaining <= 7:
+        print(
+            "   ⚠ 授权即将到期，请提前联系开发者续期",
+            flush=True,
+        )
+
+
 def main() -> None:
     os.chdir(_resource_root())
 
@@ -124,6 +164,10 @@ def main() -> None:
     import uvicorn
 
     _setup_file_logging()
+    # License check runs after logging is wired so failures land in
+    # app.log, but before the server starts so an expired install
+    # fails fast without binding a port.
+    _enforce_license()
 
     cfg = load_settings(str(settings_path))
     app = create_app(
@@ -171,27 +215,45 @@ if __name__ == "__main__":
         sys.exit(0)
     except SystemExit:
         raise
-    except BaseException:  # noqa: BLE001 — we want everything
+    except BaseException as exc:  # noqa: BLE001 — we want everything
         import traceback
-        # Write the traceback to crash.log first so the customer can
-        # share the file even if they close the cmd window before
-        # reading it.
+        # License errors are expected end-of-trial / install-without-key
+        # cases, not crashes. Show the (already-Chinese) message
+        # cleanly without a stack trace and skip crash.log noise.
         try:
-            from app import paths as app_paths
-            crash_path = app_paths.logs_dir() / "crash.log"
-            crash_path.parent.mkdir(parents=True, exist_ok=True)
-            with crash_path.open("a", encoding="utf-8") as fh:
-                fh.write("=" * 60 + "\n")
-                fh.write(time.strftime("%Y-%m-%d %H:%M:%S") + " crash:\n")
-                traceback.print_exc(file=fh)
+            from app.license import LicenseError as _LicenseError
         except Exception:  # noqa: BLE001
-            pass
-        # cmd window is visible — print the traceback and pause so the
+            _LicenseError = None  # type: ignore[assignment]
+        is_license_error = (
+            _LicenseError is not None and isinstance(exc, _LicenseError)
+        )
+
+        if not is_license_error:
+            # Write the traceback to crash.log first so the customer
+            # can share the file even if they close the cmd window
+            # before reading it.
+            try:
+                from app import paths as app_paths
+                crash_path = app_paths.logs_dir() / "crash.log"
+                crash_path.parent.mkdir(parents=True, exist_ok=True)
+                with crash_path.open("a", encoding="utf-8") as fh:
+                    fh.write("=" * 60 + "\n")
+                    fh.write(time.strftime("%Y-%m-%d %H:%M:%S") + " crash:\n")
+                    traceback.print_exc(file=fh)
+            except Exception:  # noqa: BLE001
+                pass
+
+        # cmd window is visible — print the message and pause so the
         # customer can read it / screenshot it before closing.
         print("\n" + "=" * 60, file=sys.stderr)
-        print(" Flow Harvester crashed", file=sys.stderr)
-        print("=" * 60, file=sys.stderr)
-        traceback.print_exc()
+        if is_license_error:
+            print(" Flow Harvester 授权失败", file=sys.stderr)
+            print("=" * 60, file=sys.stderr)
+            print(f" {exc}", file=sys.stderr)
+        else:
+            print(" Flow Harvester crashed", file=sys.stderr)
+            print("=" * 60, file=sys.stderr)
+            traceback.print_exc()
         try:
             input("\nPress Enter to close this window ...")
         except Exception:  # noqa: BLE001

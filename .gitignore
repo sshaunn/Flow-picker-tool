@@ -1,3 +1,9 @@
+# Customer-specific signed license keys — never commit. Each customer
+# gets their own; generate per-customer with:
+#   .venv/bin/flow-harvester gen-license --customer X --days 30
+license.key
+license-*.key
+
 # Python
 __pycache__/
 *.py[cod]

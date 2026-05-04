@@ -74,6 +74,20 @@ if errorlevel 1 (
     echo [WARN] Failed to copy customer .txt manuals into dist\FlowHarvester\.
 )
 
+REM --- 6. (Optional) Drop a license.key into the bundle if one exists
+REM        in the repo root. Generate it with:
+REM          .venv\Scripts\flow-harvester gen-license --customer XXX --days 30
+REM        before running build.bat. Without a license.key the bundled
+REM        exe refuses to start (intentional — it's the time-limit lock).
+if exist "license.key" (
+    echo [6/6] Including license.key
+    copy /Y "license.key" "dist\FlowHarvester\license.key" >nul
+) else (
+    echo [WARN] license.key not found in repo root.
+    echo        Generate one before zipping or the customer's bundle won't start:
+    echo          .venv\Scripts\flow-harvester gen-license --customer NAME --days 30
+)
+
 echo.
 if /i "%~1"=="zip" (
     echo Packing dist\FlowHarvester into FlowHarvester-bundle.zip ...

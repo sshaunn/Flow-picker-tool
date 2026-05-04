@@ -1190,6 +1190,35 @@ def serve(
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 
+@cli.command("gen-license")
+@click.option("--customer", required=True, help="客户标识，例如 acme-corp")
+@click.option("--days", default=30, show_default=True, type=int,
+              help="授权有效天数")
+@click.option("--out", default="license.key", show_default=True,
+              type=click.Path(dir_okay=False, writable=True),
+              help="输出文件路径")
+def gen_license(customer: str, days: int, out: str) -> None:
+    """Dev-only: 给客户签发一个时限授权 license.key 文件。
+
+    把生成出的 license.key 放进 ``dist\\FlowHarvester\\`` 一起打包发给
+    客户，到期后再生成新的发过去即可（不用重新打包整个 bundle）。
+    """
+    import json
+
+    from app.license import generate_license
+
+    data = generate_license(customer, days)
+    Path(out).write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    click.echo(f"授权已生成: {out}")
+    click.echo(f"  客户:     {data['customer_id']}")
+    click.echo(f"  签发时间: {data['issued_at']}")
+    click.echo(f"  过期时间: {data['expires_at']}")
+    click.echo(f"  有效期:   {days} 天")
+
+
 def main() -> None:  # pragma: no cover - thin entrypoint
     cli(obj={})
 
