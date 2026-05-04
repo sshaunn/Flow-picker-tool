@@ -89,10 +89,16 @@ selectors:
   # by two named slots, "Start" and "End", flanking a swap-arrow icon.
   # Each opens the same picker dialog as ingredients ("Upload image"),
   # so reuse ``prompt_attach_dialog`` + ``prompt_attach_upload_target``
-  # for the inner flow. Selected by exact text match — Flow renders
-  # them as plain ``<button>`` with the literal text content.
-  prompt_attach_button_start: 'button:text-is("Start")'
-  prompt_attach_button_end: 'button:text-is("End")'
+  # for the inner flow.
+  #
+  # Selector uses Playwright's text-locator with quotes for exact-match
+  # (case-insensitive) so it works whether Flow renders the slot as
+  # ``<button>``, ``<div role="button">``, or a wrapper around a span.
+  # ``button:text-is(...)`` was too strict — failed empirically when
+  # Flow wrapped the label in an inner element rather than putting it
+  # directly inside ``<button>``.
+  prompt_attach_button_start: 'text="Start"'
+  prompt_attach_button_end: 'text="End"'
 
   # The "Create" button with the arrow_forward Material Symbol.
   # The other on-page "Create" is the model-picker (icon: add_2).
