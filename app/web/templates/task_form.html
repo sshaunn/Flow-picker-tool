@@ -49,14 +49,12 @@
                 class="w-full rounded border border-slate-300 px-3 py-2 text-sm">
           <option value="reference" selected>参考图（Ingredients 模式）</option>
           <option value="frames_pair">起止帧对（Frames 模式：第1张=Start，第2张=End）</option>
-          <option value="first_frame">仅首帧</option>
-          <option value="last_frame">仅末帧</option>
+          <option value="first_frame">仅首帧（Frames 模式：只上传 Start，End 由 Veo 自动生成）</option>
           <option value="previous_segment_frame">上一片段尾帧</option>
-          <option value="other">其他</option>
         </select>
         <p class="mt-1 text-xs text-slate-500">
-          Frames 模式必须配套：上面的"画面比例 / 模型"参数里 subtab 选 frames，
-          且这里选「起止帧对」并上传正好 2 张图。
+          Frames 模式（"起止帧对" / "仅首帧"）会自动把 subtab 切到 frames，
+          无需手动改"生成参数"里的 subtab。
         </p>
       </div>
     </div>
@@ -71,26 +69,25 @@
     </div>
 
     <div data-asset-block="frames" class="hidden">
-      <p class="block text-sm font-medium text-slate-700 mb-2">
-        起止帧对（Start + End）
-      </p>
+      <p class="block text-sm font-medium text-slate-700 mb-2"
+         data-frames-heading></p>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label class="block text-xs font-medium text-slate-600 mb-1">
             视频起始帧（Start）
           </label>
           <input type="file" name="asset_start" accept="image/*"
-                 class="w-full text-sm" data-asset-input="frames">
+                 class="w-full text-sm" data-asset-input="start">
           <p class="mt-1 text-xs text-slate-500">
             视频开始时画面长这样
           </p>
         </div>
-        <div>
+        <div data-frames-end-slot>
           <label class="block text-xs font-medium text-slate-600 mb-1">
             视频结束帧（End）
           </label>
           <input type="file" name="asset_end" accept="image/*"
-                 class="w-full text-sm" data-asset-input="frames">
+                 class="w-full text-sm" data-asset-input="end">
           <p class="mt-1 text-xs text-slate-500">
             视频结束时画面长这样，Veo 自动补中间动作
           </p>
@@ -99,30 +96,42 @@
     </div>
 
     <script>
-      // Toggle asset upload widget by asset_kind dropdown.
-      // Frames mode shows two separate file inputs so start vs end is
-      // never ambiguous; ingredients shows the single multi-file input.
+      // Toggle the asset upload widget by the asset_kind dropdown:
+      //   * frames_pair  → Start + End single-file inputs
+      //   * first_frame  → only the Start single-file input
+      //   * everything else → multi-file ingredients input
+      // Switching between them updates ``required`` so the browser
+      // blocks submit only on missing files in the active branch.
       (function() {
         const sel = document.querySelector('select[name="asset_kind"]');
         const ingredientsBlock = document.querySelector('[data-asset-block="ingredients"]');
         const framesBlock = document.querySelector('[data-asset-block="frames"]');
         const ingredientsInput = document.querySelector('[data-asset-input="ingredients"]');
-        const framesInputs = document.querySelectorAll('[data-asset-input="frames"]');
+        const startInput = document.querySelector('[data-asset-input="start"]');
+        const endInput = document.querySelector('[data-asset-input="end"]');
+        const endSlot = document.querySelector('[data-frames-end-slot]');
+        const heading = document.querySelector('[data-frames-heading]');
 
         function applyMode() {
-          const isFrames = sel.value === 'frames_pair';
+          const v = sel.value;
+          const isFramesPair = v === 'frames_pair';
+          const isFirstOnly = v === 'first_frame';
+          const isFrames = isFramesPair || isFirstOnly;
+
           ingredientsBlock.classList.toggle('hidden', isFrames);
           framesBlock.classList.toggle('hidden', !isFrames);
-          // Mark the active inputs as required so the browser blocks
-          // submit on missing files; clear required on the inactive
-          // path so it doesn't block submission.
-          if (isFrames) {
-            ingredientsInput.required = false;
-            framesInputs.forEach(i => i.required = true);
-          } else {
-            ingredientsInput.required = true;
-            framesInputs.forEach(i => i.required = false);
+          endSlot.classList.toggle('hidden', !isFramesPair);
+          if (isFramesPair) {
+            heading.textContent = '起止帧对（Start + End）';
+          } else if (isFirstOnly) {
+            heading.textContent = '仅首帧（只上传 Start）';
           }
+
+          ingredientsInput.required = !isFrames;
+          startInput.required = isFrames;
+          // End is required only for frames_pair; for first_frame it's
+          // hidden + ignored by the backend.
+          endInput.required = isFramesPair;
         }
         sel.addEventListener('change', applyMode);
         applyMode();

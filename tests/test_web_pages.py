@@ -236,6 +236,46 @@ def test_frames_pair_rejects_missing_start(app_config) -> None:
     assert "Start" in resp.text or "起始帧" in resp.text
 
 
+def test_first_frame_only_uses_start_input(app_config) -> None:
+    """``first_frame`` mode reads ``asset_start`` only, tags it
+    first_frame, and auto-promotes mode_subtab to frames."""
+    files = [("asset_start", ("opener.png", io.BytesIO(b"\x89PNG"), "image/png"))]
+    data = {
+        "sku_id": "sku", "creative_id": "cre", "segment_id": "F",
+        "video_prompt": "first-only test", "target_count": "1",
+        "asset_kind": "first_frame",
+    }
+    with _client(app_config) as client:
+        resp = client.post("/tasks/new", files=files, data=data,
+                           follow_redirects=False)
+        assert resp.status_code == 303
+        task_id = resp.headers["location"].rsplit("/", 1)[-1]
+
+        from app.db.connection import connect
+        from app.tasks.repository import get_task, get_task_assets
+        with connect(app_config.db_path) as conn:
+            assets = get_task_assets(conn, task_id)
+            record = get_task(conn, task_id)
+    assert len(assets) == 1
+    assert assets[0][2] == "first_frame"
+    assert "opener.png" in assets[0][1]
+    # subtab auto-promoted so the worker switches to Frames sub-tab.
+    assert record.flow_mode is not None
+    assert record.flow_mode.subtab == "frames"
+
+
+def test_first_frame_rejects_missing_start(app_config) -> None:
+    data = {
+        "sku_id": "sku", "creative_id": "cre", "segment_id": "F",
+        "video_prompt": "p", "target_count": "1",
+        "asset_kind": "first_frame",
+    }
+    with _client(app_config) as client:
+        resp = client.post("/tasks/new", data=data, follow_redirects=False)
+    assert resp.status_code == 400
+    assert "Start" in resp.text or "起始帧" in resp.text
+
+
 def test_frames_pair_rejects_missing_end(app_config) -> None:
     files = [("asset_start", ("start.png", io.BytesIO(b"\x89PNG"), "image/png"))]
     data = {

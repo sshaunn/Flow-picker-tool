@@ -372,9 +372,12 @@ async def tasks_create(
     conn: sqlite3.Connection = Depends(get_db_conn),
     config=Depends(get_config),
 ) -> RedirectResponse:
-    # ``frames_pair`` uses the dedicated asset_start / asset_end inputs
-    # so start vs end is unambiguous regardless of OS file dialog
-    # selection order. All other kinds use the single multi-file
+    # ``frames_pair`` and ``first_frame`` are Frames-mode shortcuts:
+    # they read the dedicated asset_start (and asset_end, for pair) so
+    # start vs end is unambiguous regardless of OS file dialog
+    # selection order. Both auto-promote ``mode_subtab=frames`` so the
+    # worker switches the UI tab even if the operator forgot to flip
+    # the subtab dropdown. All other kinds use the single multi-file
     # ``assets`` input.
     if asset_kind == "frames_pair":
         if asset_start is None or not _has_file(asset_start):
@@ -391,6 +394,15 @@ async def tasks_create(
             (asset_start, "first_frame"),
             (asset_end, "last_frame"),
         ]
+        if mode_subtab in (None, "", "ingredients"):
+            mode_subtab = "frames"
+    elif asset_kind == "first_frame":
+        if asset_start is None or not _has_file(asset_start):
+            raise HTTPException(
+                status_code=400,
+                detail="仅首帧模式必须上传起始帧（Start）",
+            )
+        ordered_uploads = [(asset_start, "first_frame")]
         if mode_subtab in (None, "", "ingredients"):
             mode_subtab = "frames"
     else:
