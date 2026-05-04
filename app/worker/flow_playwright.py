@@ -333,15 +333,22 @@ class PlaywrightFlowPort(FlowPort):
 
     # --- state classification --------------------------------------------
 
-    def _visible_body_text(self) -> str:
-        """Like ``_body_text`` but rendered-visible only.
+    def _body_text(self) -> str:
+        """Rendered-visible body text for phrase classification.
 
-        Used for state checks that should only fire on full-page
-        takeovers (NO_FLOW_ACCESS, LOGIN_REQUIRED): those messages
-        are big visible banners, not hidden footer text. Going
-        through ``inner_text`` skips ``display:none`` help-center
-        snippets and ARIA labels — the false-positive sources that
-        broke ``no_flow_access`` after the textContent switch.
+        Uses Playwright's ``inner_text`` which returns ONLY rendered-
+        visible text. Tried switching to ``textContent`` (which
+        includes ``display:none`` / hidden / ARIA / tooltip text) to
+        avoid one specific false-negative class on stale Failed-card
+        baselines, but textContent picked up ``'Flow is experiencing
+        high demand'``, ``"don't have access to Flow"`` and similar
+        phrases inside Flow's hidden help-center snippets / hover
+        tooltips, dragging healthy accounts straight into manual_check
+        the moment patchright opened the page. Symmetric inner_text
+        usage (both baseline AND current count read the same way) is
+        the safer default — false-positive Failed-card detection is
+        bounded by the strike system, false-positive whole-page
+        takeover detection is not.
         """
         if self._page is None:
             return ""
@@ -349,40 +356,6 @@ class PlaywrightFlowPort(FlowPort):
             return self._page.locator("body").inner_text(timeout=5_000) or ""
         except Exception:  # noqa: BLE001
             return ""
-
-    def _body_text(self) -> str:
-        """Snapshot the page's full text content for phrase classification.
-
-        Uses ``document.body.textContent`` rather than Playwright's
-        ``inner_text`` because Flow tucks "We noticed some unusual
-        activity" into the per-candidate Failed card footer, which is
-        often ``display:none`` until the card is hovered / expanded
-        (or hidden behind virtualized scroll containers). ``inner_text``
-        only returns rendered visible text, so a Failed card that
-        existed at baseline-set time but wasn't rendered yet showed
-        count=0; once the card mounted during the wait loop the count
-        jumped to 2, which the classifier read as a NEW ban — a clear
-        false positive (we've literally seen 29%-rendering Veo
-        candidates get killed by it).
-
-        ``textContent`` returns text from every DOM node regardless
-        of CSS visibility, so the baseline at round-start is
-        consistent with later samples.
-        """
-        if self._page is None:
-            return ""
-        try:
-            text = self._page.evaluate(
-                "() => document.body && document.body.textContent || ''"
-            )
-            return text or ""
-        except Exception:  # noqa: BLE001
-            # Fallback to inner_text (rendered-visible only). Worse for
-            # baseline accuracy but better than empty string.
-            try:
-                return self._page.locator("body").inner_text(timeout=5_000) or ""
-            except Exception:  # noqa: BLE001
-                return ""
 
     _logged_stale_phrase: bool = False
 
@@ -405,16 +378,11 @@ class PlaywrightFlowPort(FlowPort):
     def _classify_state(self) -> PageState:
         body = self._body_text()
         phrases = self._cfg.state_phrases
-        # Account-level access denial: must be a VISIBLE full-page
-        # error (Flow shows it as a takeover, not a footer link).
-        # Use inner_text (rendered visible only) — textContent picked
-        # up the same wording inside Flow's help-center hover cards
-        # / hidden tooltips and false-flagged accounts that worked
-        # fine when used manually.
-        visible = self._visible_body_text()
-        hit = _phrase_match_which(visible, phrases.no_flow_access)
+        # Account-level access denial: full-page takeover, must match
+        # Flow's full sentence to avoid help-text false-positives.
+        hit = _phrase_match_which(body, phrases.no_flow_access)
         if hit is not None:
-            _LOG.warning("[classify] NO_FLOW_ACCESS matched %r (visible)", hit)
+            _LOG.warning("[classify] NO_FLOW_ACCESS matched %r", hit)
             return PageState.NO_FLOW_ACCESS
         # Service-level errors next — phrases like "Audio generation failed"
         # are unambiguous, while "unusual activity" can also appear in help
