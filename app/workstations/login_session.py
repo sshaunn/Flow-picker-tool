@@ -53,10 +53,13 @@ PROJECT_URL_RE = re.compile(
 # Without this check the login session would sit in
 # ``waiting_for_project`` forever waiting for a URL that's
 # unreachable.
+# Flow's full takeover sentence — match this specifically. Shorter
+# substrings ("don't have access to flow") false-match help-center
+# tooltips on accounts that work fine, dragging them into
+# manual_check on the very first re-login attempt.
 _NO_FLOW_ACCESS_PHRASES = (
-    "you don't have access to flow",
-    "you do not have access to flow",
-    "don't have access to flow",
+    "it looks like you don't have access to flow",
+    "it looks like you do not have access to flow",
 )
 
 

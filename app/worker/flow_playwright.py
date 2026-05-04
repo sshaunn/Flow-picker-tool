@@ -333,6 +333,23 @@ class PlaywrightFlowPort(FlowPort):
 
     # --- state classification --------------------------------------------
 
+    def _visible_body_text(self) -> str:
+        """Like ``_body_text`` but rendered-visible only.
+
+        Used for state checks that should only fire on full-page
+        takeovers (NO_FLOW_ACCESS, LOGIN_REQUIRED): those messages
+        are big visible banners, not hidden footer text. Going
+        through ``inner_text`` skips ``display:none`` help-center
+        snippets and ARIA labels — the false-positive sources that
+        broke ``no_flow_access`` after the textContent switch.
+        """
+        if self._page is None:
+            return ""
+        try:
+            return self._page.locator("body").inner_text(timeout=5_000) or ""
+        except Exception:  # noqa: BLE001
+            return ""
+
     def _body_text(self) -> str:
         """Snapshot the page's full text content for phrase classification.
 
@@ -388,13 +405,16 @@ class PlaywrightFlowPort(FlowPort):
     def _classify_state(self) -> PageState:
         body = self._body_text()
         phrases = self._cfg.state_phrases
-        # Account-level access denial first — most severe, most
-        # specific phrase ("don't have access to Flow"). Cooldown
-        # / strikes won't help; bail to manual_check so the operator
-        # can fix the subscription or swap the account.
-        hit = _phrase_match_which(body, phrases.no_flow_access)
+        # Account-level access denial: must be a VISIBLE full-page
+        # error (Flow shows it as a takeover, not a footer link).
+        # Use inner_text (rendered visible only) — textContent picked
+        # up the same wording inside Flow's help-center hover cards
+        # / hidden tooltips and false-flagged accounts that worked
+        # fine when used manually.
+        visible = self._visible_body_text()
+        hit = _phrase_match_which(visible, phrases.no_flow_access)
         if hit is not None:
-            _LOG.warning("[classify] NO_FLOW_ACCESS matched %r", hit)
+            _LOG.warning("[classify] NO_FLOW_ACCESS matched %r (visible)", hit)
             return PageState.NO_FLOW_ACCESS
         # Service-level errors next — phrases like "Audio generation failed"
         # are unambiguous, while "unusual activity" can also appear in help
