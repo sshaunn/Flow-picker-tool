@@ -334,12 +334,38 @@ class PlaywrightFlowPort(FlowPort):
     # --- state classification --------------------------------------------
 
     def _body_text(self) -> str:
+        """Snapshot the page's full text content for phrase classification.
+
+        Uses ``document.body.textContent`` rather than Playwright's
+        ``inner_text`` because Flow tucks "We noticed some unusual
+        activity" into the per-candidate Failed card footer, which is
+        often ``display:none`` until the card is hovered / expanded
+        (or hidden behind virtualized scroll containers). ``inner_text``
+        only returns rendered visible text, so a Failed card that
+        existed at baseline-set time but wasn't rendered yet showed
+        count=0; once the card mounted during the wait loop the count
+        jumped to 2, which the classifier read as a NEW ban — a clear
+        false positive (we've literally seen 29%-rendering Veo
+        candidates get killed by it).
+
+        ``textContent`` returns text from every DOM node regardless
+        of CSS visibility, so the baseline at round-start is
+        consistent with later samples.
+        """
         if self._page is None:
             return ""
         try:
-            return self._page.locator("body").inner_text(timeout=5_000) or ""
+            text = self._page.evaluate(
+                "() => document.body && document.body.textContent || ''"
+            )
+            return text or ""
         except Exception:  # noqa: BLE001
-            return ""
+            # Fallback to inner_text (rendered-visible only). Worse for
+            # baseline accuracy but better than empty string.
+            try:
+                return self._page.locator("body").inner_text(timeout=5_000) or ""
+            except Exception:  # noqa: BLE001
+                return ""
 
     _logged_stale_phrase: bool = False
 
