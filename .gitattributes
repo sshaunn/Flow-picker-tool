@@ -5,3 +5,13 @@
 *.bat text eol=crlf
 *.cmd text eol=crlf
 *.ps1 text eol=crlf
+
+# Customer-facing .txt files in docs/ are pre-encoded with UTF-8 BOM
+# and CRLF for Win Notepad. Mark them binary so git doesn't strip the
+# BOM or rewrite line endings on either commit or checkout.
+docs/*.txt binary
+
+# build.bat references Chinese filenames; we save it as UTF-8 with BOM
+# so cmd.exe (Win10+) parses it under code page 65001 correctly.
+# Mark binary to preserve the BOM through git.
+build.bat binary
