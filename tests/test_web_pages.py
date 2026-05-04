@@ -187,6 +187,69 @@ def test_task_form_post_creates_and_redirects(app_config) -> None:
     assert "form-post smoke" in detail.text
 
 
+def test_frames_pair_uses_explicit_start_end_inputs(app_config) -> None:
+    """``frames_pair`` mode reads asset_start / asset_end as named
+    fields so start/end is unambiguous regardless of OS file dialog
+    selection order."""
+    files = [
+        ("asset_start", ("start.png", io.BytesIO(b"\x89PNG-start"), "image/png")),
+        ("asset_end", ("end.png", io.BytesIO(b"\x89PNG-end"), "image/png")),
+    ]
+    data = {
+        "sku_id": "sku", "creative_id": "cre", "segment_id": "F",
+        "video_prompt": "frames test", "target_count": "1",
+        "asset_kind": "frames_pair",
+    }
+    with _client(app_config) as client:
+        resp = client.post("/tasks/new", files=files, data=data, follow_redirects=False)
+        assert resp.status_code == 303
+        new_url = resp.headers["location"]
+
+        # Pull the freshly-created task back via the API and assert the
+        # asset kinds landed in the expected slots.
+        from app.db.connection import connect
+        from app.tasks.repository import get_task_assets
+        task_id = new_url.rsplit("/", 1)[-1]
+        with connect(app_config.db_path) as conn:
+            assets = get_task_assets(conn, task_id)
+    # assets is [(order, path, kind), ...]
+    assert len(assets) == 2
+    by_order = sorted(assets, key=lambda r: r[0])
+    assert by_order[0][2] == "first_frame"
+    assert by_order[1][2] == "last_frame"
+    # Filenames preserved + correctly mapped (start.png -> first_frame).
+    assert "start.png" in by_order[0][1]
+    assert "end.png" in by_order[1][1]
+
+
+def test_frames_pair_rejects_missing_start(app_config) -> None:
+    files = [("asset_end", ("end.png", io.BytesIO(b"\x89PNG"), "image/png"))]
+    data = {
+        "sku_id": "sku", "creative_id": "cre", "segment_id": "F",
+        "video_prompt": "p", "target_count": "1",
+        "asset_kind": "frames_pair",
+    }
+    with _client(app_config) as client:
+        resp = client.post("/tasks/new", files=files, data=data,
+                           follow_redirects=False)
+    assert resp.status_code == 400
+    assert "Start" in resp.text or "起始帧" in resp.text
+
+
+def test_frames_pair_rejects_missing_end(app_config) -> None:
+    files = [("asset_start", ("start.png", io.BytesIO(b"\x89PNG"), "image/png"))]
+    data = {
+        "sku_id": "sku", "creative_id": "cre", "segment_id": "F",
+        "video_prompt": "p", "target_count": "1",
+        "asset_kind": "frames_pair",
+    }
+    with _client(app_config) as client:
+        resp = client.post("/tasks/new", files=files, data=data,
+                           follow_redirects=False)
+    assert resp.status_code == 400
+    assert "End" in resp.text or "结束帧" in resp.text
+
+
 def test_task_detail_404_for_missing(app_config) -> None:
     with _client(app_config) as client:
         assert client.get("/tasks/NOPE").status_code == 404

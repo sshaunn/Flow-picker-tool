@@ -61,14 +61,73 @@
       </div>
     </div>
 
-    <div>
+    <div data-asset-block="ingredients">
       <label class="block text-sm font-medium text-slate-700 mb-1">参考图</label>
-      <input type="file" name="assets" multiple accept="image/*" required
-             class="w-full text-sm">
+      <input type="file" name="assets" multiple accept="image/*"
+             class="w-full text-sm" data-asset-input="ingredients">
       <p class="mt-1 text-xs text-slate-500">
         可一次选多张。系统会复制到管理目录，原图不会被删除。
       </p>
     </div>
+
+    <div data-asset-block="frames" class="hidden">
+      <p class="block text-sm font-medium text-slate-700 mb-2">
+        起止帧对（Start + End）
+      </p>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">
+            视频起始帧（Start）
+          </label>
+          <input type="file" name="asset_start" accept="image/*"
+                 class="w-full text-sm" data-asset-input="frames">
+          <p class="mt-1 text-xs text-slate-500">
+            视频开始时画面长这样
+          </p>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">
+            视频结束帧（End）
+          </label>
+          <input type="file" name="asset_end" accept="image/*"
+                 class="w-full text-sm" data-asset-input="frames">
+          <p class="mt-1 text-xs text-slate-500">
+            视频结束时画面长这样，Veo 自动补中间动作
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // Toggle asset upload widget by asset_kind dropdown.
+      // Frames mode shows two separate file inputs so start vs end is
+      // never ambiguous; ingredients shows the single multi-file input.
+      (function() {
+        const sel = document.querySelector('select[name="asset_kind"]');
+        const ingredientsBlock = document.querySelector('[data-asset-block="ingredients"]');
+        const framesBlock = document.querySelector('[data-asset-block="frames"]');
+        const ingredientsInput = document.querySelector('[data-asset-input="ingredients"]');
+        const framesInputs = document.querySelectorAll('[data-asset-input="frames"]');
+
+        function applyMode() {
+          const isFrames = sel.value === 'frames_pair';
+          ingredientsBlock.classList.toggle('hidden', isFrames);
+          framesBlock.classList.toggle('hidden', !isFrames);
+          // Mark the active inputs as required so the browser blocks
+          // submit on missing files; clear required on the inactive
+          // path so it doesn't block submission.
+          if (isFrames) {
+            ingredientsInput.required = false;
+            framesInputs.forEach(i => i.required = true);
+          } else {
+            ingredientsInput.required = true;
+            framesInputs.forEach(i => i.required = false);
+          }
+        }
+        sel.addEventListener('change', applyMode);
+        applyMode();
+      })();
+    </script>
 
     <fieldset class="border border-slate-200 rounded p-3">
       <legend class="text-sm font-medium px-2">生成参数</legend>

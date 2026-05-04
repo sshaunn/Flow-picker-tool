@@ -76,6 +76,20 @@ def _scheduler_dict(daemon: SchedulerDaemon) -> dict:
     }
 
 
+def _has_file(upload: Optional[UploadFile]) -> bool:
+    """Whether a multipart UploadFile slot actually contains a file.
+
+    A user that submits a form without picking a file in an optional
+    file input still produces a non-None ``UploadFile`` with empty
+    ``filename`` (and an empty in-memory body). Treat that as absent
+    so callers can skip past it cleanly.
+    """
+    if upload is None:
+        return False
+    name = (upload.filename or "").strip()
+    return bool(name)
+
+
 def _empty_or_int(value: Optional[str]) -> Optional[int]:
     if value is None or value == "":
         return None
@@ -346,7 +360,9 @@ async def tasks_create(
     video_prompt: str = Form(...),
     target_count: int = Form(...),
     asset_kind: str = Form("reference"),
-    assets: list[UploadFile] = File(...),
+    assets: list[UploadFile] = File(default_factory=list),
+    asset_start: Optional[UploadFile] = File(None),
+    asset_end: Optional[UploadFile] = File(None),
     mode_tab: Optional[str] = Form(None),
     mode_subtab: Optional[str] = Form(None),
     mode_aspect: Optional[str] = Form(None),
@@ -356,32 +372,38 @@ async def tasks_create(
     conn: sqlite3.Connection = Depends(get_db_conn),
     config=Depends(get_config),
 ) -> RedirectResponse:
-    if not assets:
-        raise HTTPException(status_code=400, detail="at least one asset required")
-
-    # ``frames_pair`` is the UI shortcut for Frames mode: 1 dropdown
-    # value, 2 uploads, auto-tagged first_frame / last_frame in upload
-    # order. Force ``mode_subtab=frames`` so the worker switches the
-    # UI tab even if the customer forgot to set it on the form.
+    # ``frames_pair`` uses the dedicated asset_start / asset_end inputs
+    # so start vs end is unambiguous regardless of OS file dialog
+    # selection order. All other kinds use the single multi-file
+    # ``assets`` input.
     if asset_kind == "frames_pair":
-        if len(assets) != 2:
+        if asset_start is None or not _has_file(asset_start):
             raise HTTPException(
                 status_code=400,
-                detail=(
-                    "Frames 模式必须上传 2 张图片（第 1 张作为 Start，"
-                    f"第 2 张作为 End），收到 {len(assets)} 张"
-                ),
+                detail="Frames 模式必须上传起始帧（Start）",
             )
-        per_asset_kinds = ["first_frame", "last_frame"]
+        if asset_end is None or not _has_file(asset_end):
+            raise HTTPException(
+                status_code=400,
+                detail="Frames 模式必须上传结束帧（End）",
+            )
+        ordered_uploads = [
+            (asset_start, "first_frame"),
+            (asset_end, "last_frame"),
+        ]
         if mode_subtab in (None, "", "ingredients"):
             mode_subtab = "frames"
     else:
-        per_asset_kinds = [asset_kind] * len(assets)
+        if not assets or all(not _has_file(a) for a in assets):
+            raise HTTPException(
+                status_code=400, detail="at least one asset required",
+            )
+        ordered_uploads = [(a, asset_kind) for a in assets if _has_file(a)]
 
     tmp_dir = Path(tempfile.mkdtemp(prefix="flow_upload_"))
     try:
         asset_drafts: list[AssetDraft] = []
-        for idx, upload in enumerate(assets, start=1):
+        for idx, (upload, kind) in enumerate(ordered_uploads, start=1):
             safe_name = (upload.filename or f"upload_{idx}.bin").replace("/", "_")
             dest = tmp_dir / f"{idx:02d}_{safe_name}"
             with dest.open("wb") as fh:
@@ -391,8 +413,7 @@ async def tasks_create(
                         break
                     fh.write(chunk)
             asset_drafts.append(AssetDraft(
-                path=dest, kind=per_asset_kinds[idx - 1],
-                copy_into_managed_dir=True,
+                path=dest, kind=kind, copy_into_managed_dir=True,
             ))
         flow_mode = _build_flow_mode(
             tab=mode_tab, subtab=mode_subtab, aspect=mode_aspect,
