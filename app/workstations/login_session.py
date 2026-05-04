@@ -48,6 +48,18 @@ PROJECT_URL_RE = re.compile(
 )
 
 
+# Phrases on the Flow landing page that mean "this account can't get
+# into a project" — operator must fix subscription or swap account.
+# Without this check the login session would sit in
+# ``waiting_for_project`` forever waiting for a URL that's
+# unreachable.
+_NO_FLOW_ACCESS_PHRASES = (
+    "you don't have access to flow",
+    "you do not have access to flow",
+    "don't have access to flow",
+)
+
+
 class LoginState(str, Enum):
     NOT_STARTED = "not_started"
     OPENING = "opening"
@@ -219,6 +231,29 @@ class LoginSession:
                 except Exception:  # noqa: BLE001
                     pass
 
+    def _page_shows_no_flow_access(self, pages) -> bool:
+        """Sample any open Flow page's body text and return True if
+        Flow's 'no access' message is visible. Best-effort — eval can
+        race with navigation, that's fine, we'll re-check next poll."""
+        for p in pages:
+            try:
+                # Only look at Flow-domain pages so a Google sign-in
+                # iframe with similar wording doesn't false-match.
+                page_url = p.url or ""
+            except Exception:
+                page_url = ""
+            if "labs.google/fx/tools/flow" not in page_url:
+                continue
+            try:
+                text = (p.evaluate("() => document.body.innerText") or "")
+            except Exception:  # noqa: BLE001
+                continue
+            lower = text.lower()
+            for phrase in _NO_FLOW_ACCESS_PHRASES:
+                if phrase in lower:
+                    return True
+        return False
+
     def _watch_for_project_url(self, ctx, event_urls: list[str]) -> None:
         """Scan every open page until one URL matches the project pattern."""
         while not self._stop.is_set():
@@ -270,6 +305,32 @@ class LoginSession:
             if (self._snap.state == LoginState.WAITING_FOR_LOGIN
                     and any("/fx/tools/flow" in u for u in collected if u)):
                 self._set(state=LoginState.WAITING_FOR_PROJECT)
+
+            # Fail-fast when Flow's "you don't have access" page is on
+            # screen — the customer can never reach a project URL from
+            # this account, so waiting forever is just confusing.
+            # Surface a Chinese error so the UI's login partial can
+            # tell them what to do (subscribe / swap account).
+            if self._snap.state in (
+                LoginState.WAITING_FOR_LOGIN,
+                LoginState.WAITING_FOR_PROJECT,
+            ):
+                if self._page_shows_no_flow_access(pages):
+                    self._log.warning(
+                        "login %s: 'no Flow access' detected on landing page",
+                        self.workstation_id,
+                    )
+                    self._set(
+                        state=LoginState.ERROR,
+                        error=(
+                            "该账号没有 Flow 访问权限（Flow 显示 "
+                            "\"You don't have access to Flow\"）。"
+                            "需要购买 Google AI Pro / Ultra 订阅，"
+                            "或换一个有访问权的账号。"
+                        ),
+                        finished_at=_now_iso(),
+                    )
+                    return
 
             time.sleep(self._poll)
 
