@@ -336,10 +336,15 @@ def test_resume_task_clears_retry_keeps_progress(
     assert record.retry_count == 0
     assert record.error_type is None
     assert record.error_message is None
-    # Progress is preserved so the next claim continues from where the
-    # earlier attempts left off.
+    # Downloaded progress is preserved so the next claim continues from
+    # where the earlier attempts left off.
     assert record.downloaded_count == 15
-    assert record.generation_round_count == 8
+    # ``generation_round_count`` MUST reset to 0 — otherwise a task that
+    # already hit ``max_round_per_task`` would resume into the worker
+    # loop, fail the round-cap check on the very first iteration, and
+    # mark itself failed in 5 seconds without generating anything (the
+    # original "继续任务 没用" bug).
+    assert record.generation_round_count == 0
 
 
 def test_resume_task_refuses_running(db_path: Path, tmp_path: Path) -> None:

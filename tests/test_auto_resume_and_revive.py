@@ -92,9 +92,13 @@ def test_auto_resume_picks_up_exhausted_tasks(
     with connect(db_path) as conn:
         create_workstation(conn, _ws("WS_HEALTHY"))
         new_id = create_task(conn, _task(tmp_path))
+        # Simulate a task that hit max_round_per_task (20) — without the
+        # round-count reset on resume the worker would exit on round 1
+        # of the resumed run before generating anything.
         conn.execute(
             "UPDATE tasks SET status='retry_waiting', retry_count=2, "
-            "max_retry_count=2, downloaded_count=18 WHERE task_id=?",
+            "max_retry_count=2, downloaded_count=18, "
+            "generation_round_count=20 WHERE task_id=?",
             (new_id,),
         )
         conn.commit()
@@ -109,7 +113,10 @@ def test_auto_resume_picks_up_exhausted_tasks(
     assert record is not None
     assert record.status == "pending"
     assert record.retry_count == 0
-    assert record.downloaded_count == 18  # progress preserved
+    assert record.downloaded_count == 18  # download progress preserved
+    # Round budget reset — task gets a fresh max_round_per_task to fill
+    # the remaining 2 of 20.
+    assert record.generation_round_count == 0
     assert bumped == 1
 
 
