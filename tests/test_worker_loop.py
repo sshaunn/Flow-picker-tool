@@ -207,6 +207,55 @@ def test_resumed_task_gets_full_max_round_budget(db_path: Path, app_config) -> N
     assert outcome.generation_round_count == 22
 
 
+def test_resumed_task_does_not_pause_before_first_session_round(
+    db_path: Path, app_config, monkeypatch,
+) -> None:
+    """Regression: the inter-round pause must NOT fire BEFORE the
+    first round of a resumed task.
+
+    Operators reported seeing a several-second gap between Flow's
+    model-preset application and the first asset upload on resumed
+    tasks. Cause: the gate was ``round_count >= 1`` (task-lifetime
+    storage cursor — already > 0 on any resumed task) instead of
+    ``session_round_count >= 1``.
+    """
+    import time as _time
+    sleeps: list[float] = []
+    monkeypatch.setattr(_time, "sleep", lambda s: sleeps.append(s))
+
+    cfg = app_config.generation
+    cfg.max_round_per_task = 2
+    cfg.inter_round_pause_sec = 5  # would fire on bug, must NOT pre-round-1
+    _seed_task(db_path, target=4)
+    flow = MockFlowPort([MockRoundPlan.success(2), MockRoundPlan.success(2)])
+    log = logging.getLogger("test")
+    resumed = TaskInput(
+        task_id="T1", sku_id="sku", creative_id="cre", segment_id="A",
+        source_asset_path=Path("/x.png"), video_prompt="p",
+        target_count=4,
+        initial_downloaded_count=0,
+        initial_round_count=8,  # task ran 8 rounds in a previous session
+    )
+    conn = connect(db_path)
+    try:
+        outcome = execute_task(
+            conn=conn, log=log, flow=flow, workstation_id="WS_A",
+            task=resumed, config=cfg,
+            output_root=Path(app_config.output_root),
+            run_date=date(2026, 4, 28),
+        )
+    finally:
+        conn.close()
+    # Two session rounds → exactly 1 inter-round pause (between
+    # round 1 and round 2 of this session). NEVER pre-round-1.
+    assert sleeps == [5], (
+        f"expected single 5s inter-round pause; got {sleeps}. "
+        "If this list starts with 5 BEFORE the first round, the "
+        "session_round_count gate regressed."
+    )
+    assert outcome.final_status == "success"
+
+
 def test_storage_cursor_clamps_to_existing_task_results(
     db_path: Path, app_config,
 ) -> None:

@@ -222,15 +222,24 @@ def execute_task(
 
             # Pause between consecutive rounds to spread requests so
             # Google's per-account rate limiter (the trigger behind
-            # unusual_activity) is less likely to fire. Skip on round 1
-            # — there's no prior round to space out against. Day / night
-            # profile may override the per-mode wait via
-            # ``inter_round_pause_sec``; otherwise use the global default.
+            # unusual_activity) is less likely to fire. Skip on the
+            # FIRST round of this session — there's no prior round to
+            # space out against. Day / night profile may override the
+            # per-mode wait via ``inter_round_pause_sec``; otherwise
+            # use the global default.
+            #
+            # Gate on ``session_round_count`` (rounds done in this
+            # ``execute_task`` call), NOT ``round_count`` which is the
+            # task-lifetime storage cursor. A resumed task starts with
+            # round_count >= 1 from the previous session — using that
+            # gate fired a 5s pause BEFORE the first upload of every
+            # resumed task and made the model-preset → upload gap look
+            # mysteriously long to operators.
             pause_sec = (
                 inter_round_pause_sec if inter_round_pause_sec is not None
                 else getattr(config, "inter_round_pause_sec", 0)
             )
-            if round_count >= 1 and pause_sec > 0:
+            if session_round_count >= 1 and pause_sec > 0:
                 time.sleep(pause_sec)
 
             round_count += 1
