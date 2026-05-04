@@ -199,43 +199,6 @@ class PlaywrightFlowPort(FlowPort):
                 headless=self._headless,
                 no_viewport=True,
                 chromium_sandbox=True,
-                # Drop the most obvious automation-fingerprint flags
-                # that playwright adds by default. Each of these is
-                # absent from a real human-launched Chrome and can be
-                # inferred via JS:
-                #   --use-mock-keychain : real Mac Chrome uses Keychain.
-                #   --password-store=basic : same — real Chrome stores
-                #       passwords in the platform keystore.
-                #   --disable-sync : real Chrome syncs with the Google
-                #       account; the Sync API state is queryable.
-                #   --no-service-autorun, --export-tagged-pdf : random
-                #       testing-defaults nobody launches Chrome with.
-                #   --disable-features=...big list... : reveals the
-                #       playwright launcher; drop the whole arg so
-                #       Chrome runs with its real default features.
-                # Customer reported manual sessions on the same Chrome
-                # binary / same profile work fine, but patchright runs
-                # immediately get tagged 'We noticed some unusual
-                # activity'. After patchright's stealth fixes
-                # (AutomationControlled, navigator.webdriver, etc.)
-                # the remaining JS-detectable signal is the Chrome
-                # startup flag set itself.
-                ignore_default_args=[
-                    "--use-mock-keychain",
-                    "--password-store=basic",
-                    "--disable-sync",
-                    "--no-service-autorun",
-                    "--export-tagged-pdf",
-                    "--disable-features=AvoidUnnecessaryBeforeUnloadCheckSync,"
-                    "BoundaryEventDispatchTracksNodeRemoval,"
-                    "DestroyProfileOnBrowserClose,DialMediaRouteProvider,"
-                    "GlobalMediaControls,HttpsUpgrades,LensOverlay,"
-                    "MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,"
-                    "Translate,AutoDeElevate,RenderDocument,OptimizationHints",
-                    "--disable-search-engine-choice-screen",
-                    "--no-default-browser-check",
-                    "--disable-prompt-on-repost",
-                ],
             )
         except Exception as exc:
             self._teardown_pw()
