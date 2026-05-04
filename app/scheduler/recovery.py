@@ -91,3 +91,85 @@ def recover_zombie_tasks(
                 )
 
     return RecoverySummary(revived=revived, escalated_manual=escalated)
+
+
+def reset_zombie_state_on_startup(conn: sqlite3.Connection) -> RecoverySummary:
+    """Aggressive zombie recovery — call once per process boot.
+
+    A fresh process has zero in-flight workers from the previous run by
+    definition, so any task still in ``status='running'`` was orphaned
+    when the previous process died (Ctrl+C, OOM, kill, crash, customer
+    closing the cmd window). The mid-loop ``recover_zombie_tasks``
+    requires the row to be ``running_stale_minutes`` old, which leaves
+    the customer-facing UI stuck for several minutes after every
+    restart — there's no central server they can hand-edit the DB on.
+
+    This function bypasses the time threshold: every ``running`` task
+    becomes ``retry_waiting`` (and bumps ``zombie_recovery_count`` so
+    repeated crashes still escalate to ``manual_review``), and every
+    workstation stuck ``busy`` returns to ``healthy``.
+
+    Returns the same shape as ``recover_zombie_tasks`` so callers can
+    log it the same way.
+    """
+    revived = 0
+    escalated = 0
+    with transaction(conn):
+        rows = conn.execute(
+            """
+            SELECT task_id, retry_count, max_retry_count,
+                   zombie_recovery_count, assigned_workstation_id
+              FROM tasks
+             WHERE status = 'running'
+            """
+        ).fetchall()
+
+        for row in rows:
+            task_id = row["task_id"]
+            zombie_count = row["zombie_recovery_count"] + 1
+            # Use the same escalation cap as the mid-loop recovery so a
+            # task that keeps orphaning across restarts eventually goes
+            # to manual_review instead of looping forever.
+            limit = 3  # matches recovery.zombie_recovery_limit default
+            if zombie_count >= limit:
+                conn.execute(
+                    """
+                    UPDATE tasks
+                       SET status = 'manual_review',
+                           zombie_recovery_count = ?,
+                           assigned_workstation_id = NULL,
+                           started_at = NULL,
+                           error_type = 'internal',
+                           error_message = 'zombie recovery limit reached (restart cleanup)'
+                     WHERE task_id = ? AND status = 'running'
+                    """,
+                    (zombie_count, task_id),
+                )
+                escalated += 1
+            else:
+                conn.execute(
+                    """
+                    UPDATE tasks
+                       SET status = 'retry_waiting',
+                           zombie_recovery_count = ?,
+                           assigned_workstation_id = NULL,
+                           started_at = NULL,
+                           error_type = 'internal',
+                           error_message = 'process restarted while task was running; resuming'
+                     WHERE task_id = ? AND status = 'running'
+                    """,
+                    (zombie_count, task_id),
+                )
+                revived += 1
+
+        # Free every busy workstation — without an in-flight worker
+        # in this fresh process, ``busy`` is by definition stale.
+        conn.execute(
+            """
+            UPDATE workstations
+               SET status = 'healthy', updated_at = datetime('now')
+             WHERE status = 'busy'
+            """
+        )
+
+    return RecoverySummary(revived=revived, escalated_manual=escalated)

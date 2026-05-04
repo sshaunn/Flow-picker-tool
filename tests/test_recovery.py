@@ -79,6 +79,106 @@ def test_zombie_recovery_limit_escalates_to_manual_review(db_path: Path, worksta
         conn.close()
 
 
+def test_startup_cleanup_resets_running_regardless_of_age(
+    db_path: Path, workstations,
+) -> None:
+    """Process-boot cleanup ignores running_stale_minutes — every
+    running task in a fresh process is by definition orphaned."""
+    from app.scheduler.recovery import reset_zombie_state_on_startup
+
+    sync_workstations(db_path, workstations)
+    conn = connect(db_path)
+    try:
+        # Started 30 SECONDS ago — far below the 30-min mid-loop
+        # threshold, but still orphaned from a customer-side restart.
+        _seed_running(conn, task_id="T_RECENT", started_minutes_ago=0)
+        s = reset_zombie_state_on_startup(conn)
+        assert s.revived == 1
+        assert s.escalated_manual == 0
+        row = conn.execute(
+            "SELECT status, retry_count, zombie_recovery_count, "
+            "assigned_workstation_id, started_at, error_type "
+            "FROM tasks WHERE task_id='T_RECENT'"
+        ).fetchone()
+        assert row["status"] == "retry_waiting"
+        assert row["zombie_recovery_count"] == 1
+        # Startup cleanup does NOT bump retry_count — it's not a
+        # task-side error, just a process restart.
+        assert row["retry_count"] == 0
+        assert row["assigned_workstation_id"] is None
+        assert row["started_at"] is None
+        assert row["error_type"] == "internal"
+        ws = conn.execute(
+            "SELECT status FROM workstations WHERE id='WS_A'"
+        ).fetchone()
+        assert ws["status"] == "healthy"
+    finally:
+        conn.close()
+
+
+def test_startup_cleanup_escalates_repeat_zombies(
+    db_path: Path, workstations,
+) -> None:
+    """A task that gets orphaned 3 times in a row (zombie_recovery_count
+    reaches the limit) goes to manual_review instead of retry_waiting."""
+    from app.scheduler.recovery import reset_zombie_state_on_startup
+
+    sync_workstations(db_path, workstations)
+    conn = connect(db_path)
+    try:
+        _seed_running(
+            conn, task_id="T_REPEAT", started_minutes_ago=0,
+            zombie_count=2,  # one more bump → limit (3) reached
+        )
+        s = reset_zombie_state_on_startup(conn)
+        assert s.revived == 0
+        assert s.escalated_manual == 1
+        row = conn.execute(
+            "SELECT status FROM tasks WHERE task_id='T_REPEAT'"
+        ).fetchone()
+        assert row["status"] == "manual_review"
+    finally:
+        conn.close()
+
+
+def test_startup_cleanup_releases_busy_workstations(
+    db_path: Path, workstations,
+) -> None:
+    """Even if there's no running task, a workstation stuck in busy
+    (e.g. claim then crash before task insert) gets released."""
+    from app.scheduler.recovery import reset_zombie_state_on_startup
+
+    sync_workstations(db_path, workstations)
+    conn = connect(db_path)
+    try:
+        conn.execute("UPDATE workstations SET status='busy' WHERE id='WS_A'")
+        s = reset_zombie_state_on_startup(conn)
+        assert s.revived == 0
+        ws = conn.execute(
+            "SELECT status FROM workstations WHERE id='WS_A'"
+        ).fetchone()
+        assert ws["status"] == "healthy"
+    finally:
+        conn.close()
+
+
+def test_startup_cleanup_noop_on_clean_db(
+    db_path: Path, workstations,
+) -> None:
+    """Idempotent — if there are no running tasks / busy workstations,
+    cleanup just reports zeros and changes nothing."""
+    from app.scheduler.recovery import reset_zombie_state_on_startup
+
+    sync_workstations(db_path, workstations)
+    conn = connect(db_path)
+    try:
+        s = reset_zombie_state_on_startup(conn)
+        assert s.revived == 0
+        assert s.escalated_manual == 0
+    finally:
+        conn.close()
+
+
 def test_task_results_unique_prevents_double_insert(db_path: Path, workstations) -> None:
     """Recovery scenario: re-running a round must not duplicate results."""
     import sqlite3

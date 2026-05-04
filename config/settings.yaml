@@ -20,7 +20,15 @@ flow:
   entry_url: "https://labs.google/fx/tools/flow"
 
 recovery:
-  running_stale_minutes: 30
+  # How long a task can sit in ``status='running'`` before mid-loop
+  # zombie recovery flips it to ``retry_waiting``. Process-boot
+  # cleanup (reset_zombie_state_on_startup) handles the common
+  # restart case immediately, so this knob only covers in-process
+  # worker hangs (Chrome unresponsive, OS scheduling stalls). 5
+  # minutes is a balance — long enough that a slow ~3min round
+  # doesn't trip it, short enough that a hung worker frees the WS
+  # without forcing a full restart.
+  running_stale_minutes: 5
   zombie_recovery_limit: 3
 
 output_root: "./output"

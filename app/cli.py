@@ -1086,6 +1086,7 @@ def scheduler_daemon(ctx: click.Context, idle_poll_sec: float, mock: bool) -> No
     from app.db.connection import connect
     from app.db.schema import init_schema
     from app.scheduler.daemon import SchedulerDaemon
+    from app.scheduler.recovery import reset_zombie_state_on_startup
     from app.workstations.repository import list_workstations
     from app.workstations.sync import sync_workstations as do_sync
 
@@ -1094,6 +1095,17 @@ def scheduler_daemon(ctx: click.Context, idle_poll_sec: float, mock: bool) -> No
     # Bootstrap from yaml if needed (DB-as-source-of-truth, but yaml is
     # still the dev convenience path).
     do_sync(cfg.db_path, ws_yaml)
+    # Process-boot cleanup: clear any orphaned ``running`` tasks /
+    # ``busy`` workstations left behind by the previous process. See
+    # reset_zombie_state_on_startup for why this can't wait for the
+    # mid-loop recover_zombie_tasks (30-min threshold).
+    with connect(cfg.db_path) as conn:
+        summary = reset_zombie_state_on_startup(conn)
+    if summary.revived or summary.escalated_manual:
+        click.echo(
+            f"startup zombie cleanup: revived={summary.revived} "
+            f"escalated_manual={summary.escalated_manual}"
+        )
     with connect(cfg.db_path) as conn:
         ws_list = list_workstations(conn)
     if not ws_list:

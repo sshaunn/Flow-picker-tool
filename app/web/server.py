@@ -47,6 +47,24 @@ def _make_lifespan(*, auto_start_daemon: bool):
         init_schema(Path(cfg.db_path))
         app_paths.ensure_app_dirs()
 
+        # Process-boot zombie cleanup: any tasks still ``running`` from
+        # the previous process are by definition orphaned (no in-flight
+        # worker exists in this fresh process). The mid-loop
+        # recover_zombie_tasks would only act on rows older than
+        # running_stale_minutes — that's fine for live crashes but
+        # leaves the customer UI stuck for several minutes after every
+        # restart, and customers run the bundled exe locally with no
+        # central server / no DB shell to hand-edit. Reset eagerly here.
+        from app.db.connection import connect as _connect
+        from app.scheduler.recovery import reset_zombie_state_on_startup
+        with _connect(cfg.db_path) as cleanup_conn:
+            cleanup_summary = reset_zombie_state_on_startup(cleanup_conn)
+        if cleanup_summary.revived or cleanup_summary.escalated_manual:
+            log.info(
+                "startup zombie cleanup: revived=%d escalated_manual=%d",
+                cleanup_summary.revived, cleanup_summary.escalated_manual,
+            )
+
         # Daemon re-queries workstations from DB each pass (so WS added
         # via the Web UI after boot are picked up automatically).
         daemon = SchedulerDaemon(
