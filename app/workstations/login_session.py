@@ -204,6 +204,29 @@ class LoginSession:
                 headless=False,
                 no_viewport=True,
                 chromium_sandbox=True,
+                # Drop the same automation-fingerprint flags the
+                # worker drops (see app/worker/flow_playwright.py).
+                # Login session also gets exposed to Flow's
+                # behavioral classifier the moment it lands on the
+                # project page; matching the launch profile here
+                # avoids "logged in fine but immediately flagged"
+                # mismatches.
+                ignore_default_args=[
+                    "--use-mock-keychain",
+                    "--password-store=basic",
+                    "--disable-sync",
+                    "--no-service-autorun",
+                    "--export-tagged-pdf",
+                    "--disable-features=AvoidUnnecessaryBeforeUnloadCheckSync,"
+                    "BoundaryEventDispatchTracksNodeRemoval,"
+                    "DestroyProfileOnBrowserClose,DialMediaRouteProvider,"
+                    "GlobalMediaControls,HttpsUpgrades,LensOverlay,"
+                    "MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,"
+                    "Translate,AutoDeElevate,RenderDocument,OptimizationHints",
+                    "--disable-search-engine-choice-screen",
+                    "--no-default-browser-check",
+                    "--disable-prompt-on-repost",
+                ],
             )
             try:
                 # Belt-and-suspenders URL tracking. patchright's cached
