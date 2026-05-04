@@ -303,6 +303,68 @@ def test_bulk_import_rejects_reference_with_frames_columns(app_config) -> None:
     assert any("frames" in e for e in body["errors"])
 
 
+def test_bulk_validate_dry_run_returns_per_row_status(app_config) -> None:
+    """``/bulk-validate`` mirrors ``/bulk-import`` validation but
+    creates no tasks. The response surfaces every row pass/fail so the
+    operator can fix the CSV before committing."""
+    csv_text = (
+        "sku_id,creative_id,segment_id,video_prompt,target_count,"
+        "asset_kind,source_asset_path,source_start_path,source_end_path\n"
+        "sku,cre,A,row 2 ok,2,reference,a.png,,\n"
+        "sku,cre,B,row 3 frames,2,frames_pair,,start.png,end.png\n"
+        "sku,cre,C,row 4 wrong column,1,first_frame,opener.png,,\n"
+        "sku,cre,D,row 5 missing image,2,reference,nope.png,,\n"
+    )
+    with _client(app_config) as client:
+        files = [
+            ("csv_file", ("tasks.csv", io.BytesIO(csv_text.encode("utf-8")), "text/csv")),
+            ("images", ("a.png", io.BytesIO(_PNG), "image/png")),
+            ("images", ("start.png", io.BytesIO(_PNG), "image/png")),
+            ("images", ("end.png", io.BytesIO(_PNG), "image/png")),
+            ("images", ("opener.png", io.BytesIO(_PNG), "image/png")),
+        ]
+        resp = client.post("/api/tasks/bulk-validate", files=files)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["valid"] == 2
+    assert body["invalid"] == 2
+    rows = {r["line_no"]: r for r in body["rows"]}
+    # Row 2: reference + source_asset_path → ok.
+    assert rows[2]["ok"] is True
+    assert "a.png" in rows[2]["asset_summary"]
+    # Row 3: frames_pair → ok, asset_summary lists both names, flow_mode
+    # summary mentions auto-promoted subtab.
+    assert rows[3]["ok"] is True
+    assert "start.png" in rows[3]["asset_summary"]
+    assert "end.png" in rows[3]["asset_summary"]
+    assert "subtab=frames" in rows[3]["flow_mode_summary"]
+    # Row 4: first_frame using source_asset_path → rejected by name.
+    assert rows[4]["ok"] is False
+    assert "source_start_path" in rows[4]["error"]
+    # Row 5: missing image file → rejected.
+    assert rows[5]["ok"] is False
+    assert "nope.png" in rows[5]["error"]
+
+
+def test_bulk_validate_does_not_insert_tasks(app_config) -> None:
+    """Even when every row is valid, the dry-run must not touch the DB."""
+    csv_text = (
+        "sku_id,creative_id,segment_id,video_prompt,target_count,source_asset_path\n"
+        "sku,cre,A,smoke,2,a.png\n"
+    )
+    with _client(app_config) as client:
+        files = [
+            ("csv_file", ("tasks.csv", io.BytesIO(csv_text.encode("utf-8")), "text/csv")),
+            ("images", ("a.png", io.BytesIO(_PNG), "image/png")),
+        ]
+        validate = client.post("/api/tasks/bulk-validate", files=files)
+        # After preview, the API task list should still be empty.
+        listing = client.get("/api/tasks").json()
+    assert validate.status_code == 200
+    assert validate.json()["valid"] == 1
+    assert listing == []
+
+
 def test_bulk_form_page_renders(app_config) -> None:
     with _client(app_config) as client:
         resp = client.get("/tasks/bulk")

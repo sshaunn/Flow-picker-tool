@@ -66,28 +66,123 @@
     <div class="flex justify-end gap-2 pt-2">
       <a href="/tasks" class="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900">取消</a>
       <button type="submit" class="px-4 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">
-        开始导入
+        预览检查
       </button>
     </div>
+    <p class="text-xs text-slate-500 text-right">
+      预览检查会扫描每一行，列出错误（不会创建任务）；
+      确认无误后再点 "确认导入"。
+    </p>
   </form>
 
   <div id="result" class="mt-4"></div>
 </div>
 
 <script>
-document.getElementById('bulk-form').addEventListener('submit', async (ev) => {
+const FORM = document.getElementById('bulk-form');
+const OUT = document.getElementById('result');
+
+function escape(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[c]));
+}
+
+function renderPreview(body) {
+  const ok = body.valid, bad = body.invalid;
+  let html = '';
+  if (bad === 0) {
+    html += `<div class="px-4 py-3 bg-green-50 text-green-800 text-sm rounded border border-green-200">
+      ✓ 全部 <strong>${ok}</strong> 行检查通过，可以导入。</div>`;
+  } else {
+    html += `<div class="px-4 py-3 bg-amber-50 text-amber-900 text-sm rounded border border-amber-300">
+      ${ok} 行通过 / <strong>${bad}</strong> 行有问题。
+      下面表格里红色是错误行 — 请修正后再上传 CSV，或者直接 "继续导入有效行"。</div>`;
+  }
+  html += `<div class="mt-3 overflow-x-auto">
+    <table class="w-full text-xs border border-slate-200">
+      <thead class="bg-slate-100">
+        <tr>
+          <th class="px-2 py-1 text-left">行</th>
+          <th class="px-2 py-1 text-left">状态</th>
+          <th class="px-2 py-1 text-left">SKU / 创意 / 片段</th>
+          <th class="px-2 py-1 text-left">目标</th>
+          <th class="px-2 py-1 text-left">素材</th>
+          <th class="px-2 py-1 text-left">参数</th>
+          <th class="px-2 py-1 text-left">备注 / 错误</th>
+        </tr>
+      </thead>
+      <tbody>`;
+  for (const r of body.rows) {
+    const cls = r.ok
+      ? 'bg-white'
+      : 'bg-red-50';
+    const status = r.ok
+      ? '<span class="text-green-700">✓ 通过</span>'
+      : '<span class="text-red-700 font-medium">✗ 错误</span>';
+    html += `<tr class="${cls} border-t border-slate-200">
+      <td class="px-2 py-1 align-top">${r.line_no}</td>
+      <td class="px-2 py-1 align-top">${status}</td>
+      <td class="px-2 py-1 align-top font-mono text-[11px]">
+        ${escape(r.sku_id)} / ${escape(r.creative_id)} / ${escape(r.segment_id)}
+      </td>
+      <td class="px-2 py-1 align-top">${r.target_count ?? ''}</td>
+      <td class="px-2 py-1 align-top text-[11px]">${escape(r.asset_summary || '')}</td>
+      <td class="px-2 py-1 align-top text-[11px] text-slate-600">${escape(r.flow_mode_summary || '')}</td>
+      <td class="px-2 py-1 align-top text-[11px] ${r.ok ? 'text-slate-500' : 'text-red-700'}">
+        ${escape(r.error || '')}
+      </td>
+    </tr>`;
+  }
+  html += '</tbody></table></div>';
+
+  html += '<div class="mt-3 flex gap-2 justify-end">';
+  if (ok > 0) {
+    const label = bad === 0 ? `确认导入 ${ok} 个任务` : `继续导入 ${ok} 个有效行`;
+    html += `<button id="confirm-import"
+      class="px-4 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">
+      ${label}</button>`;
+  }
+  html += `<button id="back-to-form"
+    class="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900">返回修改</button>`;
+  html += '</div>';
+  OUT.innerHTML = html;
+
+  document.getElementById('back-to-form').addEventListener('click', () => {
+    OUT.innerHTML = '';
+  });
+  const confirmBtn = document.getElementById('confirm-import');
+  if (confirmBtn) confirmBtn.addEventListener('click', runImport);
+}
+
+async function runPreview(ev) {
   ev.preventDefault();
-  const form = ev.target;
-  const out = document.getElementById('result');
-  out.innerHTML = '<div class="text-sm text-slate-500">正在导入…</div>';
-  const data = new FormData(form);
+  OUT.innerHTML = '<div class="text-sm text-slate-500">正在扫描 CSV…</div>';
+  const data = new FormData(FORM);
+  try {
+    const resp = await fetch('/api/tasks/bulk-validate', {method: 'POST', body: data});
+    const body = await resp.json();
+    if (!resp.ok) {
+      OUT.innerHTML = `<div class="px-4 py-3 bg-red-50 text-red-800 text-sm rounded border border-red-200">
+        预览失败：${escape(body.detail || resp.statusText)}</div>`;
+      return;
+    }
+    renderPreview(body);
+  } catch (err) {
+    OUT.innerHTML = `<div class="px-4 py-3 bg-red-50 text-red-800 text-sm rounded border border-red-200">
+      预览失败：${escape(err.message)}</div>`;
+  }
+}
+
+async function runImport() {
+  OUT.innerHTML = '<div class="text-sm text-slate-500">正在导入…</div>';
+  const data = new FormData(FORM);
   try {
     const resp = await fetch('/api/tasks/bulk-import', {method: 'POST', body: data});
     const body = await resp.json();
     if (!resp.ok) {
-      out.innerHTML = `<div class="px-4 py-3 bg-red-50 text-red-800 text-sm rounded border border-red-200">
-        导入失败：${body.detail || resp.statusText}
-      </div>`;
+      OUT.innerHTML = `<div class="px-4 py-3 bg-red-50 text-red-800 text-sm rounded border border-red-200">
+        导入失败：${escape(body.detail || resp.statusText)}</div>`;
       return;
     }
     let html = `<div class="px-4 py-3 bg-green-50 text-green-800 text-sm rounded border border-green-200">
@@ -97,18 +192,19 @@ document.getElementById('bulk-form').addEventListener('submit', async (ev) => {
     if (body.errors && body.errors.length) {
       html += '<div class="mt-2 px-4 py-3 bg-amber-50 text-amber-800 text-xs rounded border border-amber-200">';
       html += '<div class="font-medium mb-1">跳过的行：</div><ul class="list-disc list-inside space-y-0.5">';
-      for (const e of body.errors) html += `<li>${e}</li>`;
+      for (const e of body.errors) html += `<li>${escape(e)}</li>`;
       html += '</ul></div>';
     }
     if (body.inserted) {
       html += '<div class="mt-3"><a href="/tasks" class="text-blue-600 hover:underline text-sm">→ 查看任务列表</a></div>';
     }
-    out.innerHTML = html;
+    OUT.innerHTML = html;
   } catch (err) {
-    out.innerHTML = `<div class="px-4 py-3 bg-red-50 text-red-800 text-sm rounded border border-red-200">
-      导入失败：${err.message}
-    </div>`;
+    OUT.innerHTML = `<div class="px-4 py-3 bg-red-50 text-red-800 text-sm rounded border border-red-200">
+      导入失败：${escape(err.message)}</div>`;
   }
-});
+}
+
+FORM.addEventListener('submit', runPreview);
 </script>
 {% endblock %}

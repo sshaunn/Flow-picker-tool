@@ -34,6 +34,182 @@ from app.web.dependencies import get_config, get_db_conn
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
 
+# ----------------------------------------------------------------------------
+# Bulk-import row parsing helpers (shared by /bulk-import and /bulk-validate).
+# Lives at module level so the dry-run validate route can reuse the exact
+# same validation rules; otherwise the two routes drift and a CSV that
+# preview-passes might still fail at import.
+
+def _bulk_empty_or_int(value):
+    if value is None or str(value).strip() == "":
+        return None
+    return int(value)
+
+
+def _bulk_empty_or_str(value):
+    if value is None or str(value).strip() == "":
+        return None
+    return str(value).strip()
+
+
+def _bulk_row_flow_mode(row: dict, *, force_subtab_frames: bool = False):
+    from app.config.loader import FlowModeSpec
+    fields = {
+        "tab": _bulk_empty_or_str(row.get("mode_tab")),
+        "subtab": _bulk_empty_or_str(row.get("mode_subtab")),
+        "aspect": _bulk_empty_or_str(row.get("mode_aspect")),
+        "output_count": _bulk_empty_or_int(row.get("mode_output_count")),
+        "duration_sec": _bulk_empty_or_int(row.get("mode_duration_sec")),
+        "model": _bulk_empty_or_str(row.get("mode_model")),
+    }
+    if force_subtab_frames and fields["subtab"] in (None, "ingredients"):
+        fields["subtab"] = "frames"
+    if all(v is None for v in fields.values()):
+        return None
+    return FlowModeSpec(**fields)
+
+
+def _bulk_split_pipe(raw: str) -> list[str]:
+    return [
+        p.strip().split("/")[-1].split("\\")[-1]
+        for p in (raw or "").split("|") if p.strip()
+    ]
+
+
+def _bulk_resolve_row_assets(
+    row: dict, by_basename: dict[str, Path],
+) -> tuple[list[tuple[Path, str]], bool]:
+    """Resolve a CSV row's asset references → ``(path, kind)`` pairs.
+
+    Returns ``(asset_pairs, is_frames_row)`` so the caller can force
+    ``mode_subtab=frames`` on frames-mode rows. Cross-column conflicts
+    (e.g. asset_kind=first_frame but image written to source_asset_path)
+    raise ValueError with a Chinese message naming the wrong column —
+    surfaced to the operator both via the live import errors list and
+    via the dry-run preview.
+    """
+    kind = (
+        (row.get("asset_kind") or row.get("source_asset_type")
+         or "reference").strip()
+    )
+    ref = (row.get("source_asset_path") or "").strip()
+    start = (row.get("source_start_path") or "").strip()
+    end = (row.get("source_end_path") or "").strip()
+
+    def _stage(name: str) -> Path:
+        cleaned = name.strip().split("/")[-1].split("\\")[-1]
+        staged = by_basename.get(cleaned)
+        if staged is None:
+            raise ValueError(f"图片 {cleaned!r} 不在上传文件中")
+        return staged
+
+    if kind == "frames_pair":
+        if ref:
+            raise ValueError(
+                "asset_kind=frames_pair 不能用 source_asset_path 列；"
+                "改用 source_start_path 和 source_end_path 两列"
+            )
+        if not start:
+            raise ValueError("frames_pair 必须填 source_start_path")
+        if not end:
+            raise ValueError("frames_pair 必须填 source_end_path")
+        return ([(_stage(start), "first_frame"),
+                 (_stage(end), "last_frame")], True)
+
+    if kind == "first_frame":
+        if ref:
+            raise ValueError(
+                "asset_kind=first_frame 不能用 source_asset_path 列；"
+                "改用 source_start_path 列"
+            )
+        if end:
+            raise ValueError(
+                "asset_kind=first_frame 时 source_end_path 必须为空"
+            )
+        if not start:
+            raise ValueError("first_frame 必须填 source_start_path")
+        return ([(_stage(start), "first_frame")], True)
+
+    if kind == "last_frame":
+        if ref:
+            raise ValueError(
+                "asset_kind=last_frame 不能用 source_asset_path 列；"
+                "改用 source_end_path 列"
+            )
+        if start:
+            raise ValueError(
+                "asset_kind=last_frame 时 source_start_path 必须为空"
+            )
+        if not end:
+            raise ValueError("last_frame 必须填 source_end_path")
+        return ([(_stage(end), "last_frame")], True)
+
+    # Non-frames kinds (reference / previous_segment_frame). Reject
+    # any frames columns to catch a likely typo (e.g. operator put a
+    # start frame in source_asset_path but forgot to switch asset_kind
+    # to first_frame).
+    if start or end:
+        raise ValueError(
+            f"asset_kind={kind} 时不能填 source_start_path "
+            "或 source_end_path（这两列只用于 frames 模式）"
+        )
+    if not ref:
+        raise ValueError("source_asset_path 为空")
+    names = _bulk_split_pipe(ref)
+    if not names:
+        raise ValueError("source_asset_path 没有有效条目")
+    return ([(_stage(n), kind) for n in names], False)
+
+
+async def _bulk_decode_csv(csv_file: UploadFile) -> list[dict]:
+    """Decode + parse the uploaded CSV into a list of row dicts.
+    Raises HTTPException(400) for unreadable / empty CSVs."""
+    import csv as _csv
+    import io as _io
+
+    try:
+        text = (await csv_file.read()).decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(
+            status_code=400, detail=f"CSV must be UTF-8: {exc}",
+        ) from exc
+    reader = _csv.DictReader(_io.StringIO(text))
+    rows = list(reader)
+    if not rows:
+        raise HTTPException(status_code=400, detail="CSV has no rows")
+    return rows
+
+
+async def _bulk_stage_images(
+    images: list[UploadFile], tmp_dir: Path,
+) -> dict[str, Path]:
+    """Persist each uploaded image to the temp dir, keyed by basename
+    so CSV ``source_asset_path`` lookups can resolve."""
+    by_basename: dict[str, Path] = {}
+    for upload in images:
+        base = (upload.filename or "").split("/")[-1]
+        if not base:
+            continue
+        dest = tmp_dir / base
+        with dest.open("wb") as fh:
+            while True:
+                chunk = await upload.read(64 * 1024)
+                if not chunk:
+                    break
+                fh.write(chunk)
+        by_basename[base] = dest
+    return by_basename
+
+
+def _bulk_summarize_assets(
+    pairs: list[tuple[Path, str]], kind_label: str,
+) -> str:
+    """Render a one-line preview of an asset list, e.g.
+    ``frames_pair: start.png + end.png``."""
+    names = " + ".join(p.name for p, _k in pairs)
+    return f"{kind_label}: {names}" if names else kind_label
+
+
 class TaskAssetOut(BaseModel):
     order: int
     path: str
@@ -126,6 +302,26 @@ class BulkImportSummary(BaseModel):
     task_ids: list[str]
 
 
+class BulkPreviewRow(BaseModel):
+    """One row of a bulk-import dry-run, surfaced row-by-row in the UI
+    so the operator can fix the CSV before any tasks land in the DB."""
+    line_no: int
+    ok: bool
+    sku_id: str = ""
+    creative_id: str = ""
+    segment_id: str = ""
+    target_count: Optional[int] = None
+    asset_summary: str = ""        # human-readable e.g. "frames_pair: start.png + end.png"
+    flow_mode_summary: str = ""    # e.g. "subtab=frames, aspect=9:16"
+    error: Optional[str] = None    # populated only when ok=False
+
+
+class BulkPreviewSummary(BaseModel):
+    valid: int
+    invalid: int
+    rows: list[BulkPreviewRow]
+
+
 @router.post("/bulk-import", response_model=BulkImportSummary,
              status_code=status.HTTP_201_CREATED)
 async def bulk_import_route(
@@ -161,172 +357,24 @@ async def bulk_import_route(
     ``max_retry_count``, ``mode_*``. Anything not in the CSV uses the
     same defaults as the single-task form.
     """
-    import csv as _csv
-    import io as _io
     import shutil as _shutil
     import tempfile as _tempfile
-    from app.config.loader import FlowModeSpec
     from app.tasks.repository import (
         AssetDraft, TaskDraft, TaskRepositoryError,
     )
 
-    def _empty_or_int(value):
-        if value is None or str(value).strip() == "":
-            return None
-        return int(value)
-
-    def _empty_or_str(value):
-        if value is None or str(value).strip() == "":
-            return None
-        return str(value).strip()
-
-    def _row_flow_mode(
-        row: dict, *, force_subtab_frames: bool = False,
-    ) -> FlowModeSpec | None:
-        fields = {
-            "tab": _empty_or_str(row.get("mode_tab")),
-            "subtab": _empty_or_str(row.get("mode_subtab")),
-            "aspect": _empty_or_str(row.get("mode_aspect")),
-            "output_count": _empty_or_int(row.get("mode_output_count")),
-            "duration_sec": _empty_or_int(row.get("mode_duration_sec")),
-            "model": _empty_or_str(row.get("mode_model")),
-        }
-        # Frames-mode rows auto-promote subtab so the worker switches
-        # to the Frames sub-tab even if the operator forgot the column.
-        # Only overrides empty / "ingredients" — explicit "frames"
-        # already there is preserved.
-        if force_subtab_frames and fields["subtab"] in (None, "ingredients"):
-            fields["subtab"] = "frames"
-        if all(v is None for v in fields.values()):
-            return None
-        return FlowModeSpec(**fields)
-
-    def _split_pipe(raw: str) -> list[str]:
-        return [
-            p.strip().split("/")[-1].split("\\")[-1]
-            for p in (raw or "").split("|") if p.strip()
-        ]
-
-    def _resolve_row_assets(
-        row: dict, by_basename: dict[str, Path],
-    ) -> tuple[list[tuple[Path, str]], bool]:
-        """Resolve a CSV row's asset references to ``(path, kind)``
-        pairs and return whether the row is in Frames mode (caller uses
-        this to force ``mode_subtab=frames``).
-
-        Validates cross-column conflicts so an operator who typo'd
-        ``asset_kind=first_frame`` while leaving the image in
-        ``source_asset_path`` gets rejected loudly instead of silently
-        ending up as a 'reference' upload that would route through
-        Ingredients.
-        """
-        kind = (
-            (row.get("asset_kind") or row.get("source_asset_type")
-             or "reference").strip()
-        )
-        ref = (row.get("source_asset_path") or "").strip()
-        start = (row.get("source_start_path") or "").strip()
-        end = (row.get("source_end_path") or "").strip()
-
-        def _stage(name: str) -> Path:
-            cleaned = name.strip().split("/")[-1].split("\\")[-1]
-            staged = by_basename.get(cleaned)
-            if staged is None:
-                raise ValueError(f"图片 {cleaned!r} 不在上传文件中")
-            return staged
-
-        is_frames_mode = kind in {"frames_pair", "first_frame", "last_frame"}
-
-        if kind == "frames_pair":
-            if ref:
-                raise ValueError(
-                    "asset_kind=frames_pair 不能用 source_asset_path 列；"
-                    "改用 source_start_path 和 source_end_path 两列"
-                )
-            if not start:
-                raise ValueError("frames_pair 必须填 source_start_path")
-            if not end:
-                raise ValueError("frames_pair 必须填 source_end_path")
-            return ([(_stage(start), "first_frame"),
-                     (_stage(end), "last_frame")], True)
-
-        if kind == "first_frame":
-            if ref:
-                raise ValueError(
-                    "asset_kind=first_frame 不能用 source_asset_path 列；"
-                    "改用 source_start_path 列"
-                )
-            if end:
-                raise ValueError(
-                    "asset_kind=first_frame 时 source_end_path 必须为空"
-                )
-            if not start:
-                raise ValueError("first_frame 必须填 source_start_path")
-            return ([(_stage(start), "first_frame")], True)
-
-        if kind == "last_frame":
-            if ref:
-                raise ValueError(
-                    "asset_kind=last_frame 不能用 source_asset_path 列；"
-                    "改用 source_end_path 列"
-                )
-            if start:
-                raise ValueError(
-                    "asset_kind=last_frame 时 source_start_path 必须为空"
-                )
-            if not end:
-                raise ValueError("last_frame 必须填 source_end_path")
-            return ([(_stage(end), "last_frame")], True)
-
-        # Non-frames kinds (reference / previous_segment_frame).
-        # Reject any frames columns to catch a likely typo (e.g.
-        # operator put a start frame in source_asset_path but forgot
-        # to switch asset_kind to first_frame).
-        if start or end:
-            raise ValueError(
-                f"asset_kind={kind} 时不能填 source_start_path "
-                "或 source_end_path（这两列只用于 frames 模式）"
-            )
-        if not ref:
-            raise ValueError("source_asset_path 为空")
-        names = _split_pipe(ref)
-        if not names:
-            raise ValueError("source_asset_path 没有有效条目")
-        return ([(_stage(n), kind) for n in names], False)
-
-    try:
-        text = (await csv_file.read()).decode("utf-8-sig")
-    except UnicodeDecodeError as exc:
-        raise HTTPException(
-            status_code=400, detail=f"CSV must be UTF-8: {exc}",
-        ) from exc
-    reader = _csv.DictReader(_io.StringIO(text))
-    rows = list(reader)
-    if not rows:
-        raise HTTPException(status_code=400, detail="CSV has no rows")
+    rows = await _bulk_decode_csv(csv_file)
 
     # Stage every uploaded image under a temp dir keyed by basename.
     tmp_dir = Path(_tempfile.mkdtemp(prefix="flow_bulk_"))
-    by_basename: dict[str, Path] = {}
     try:
-        for upload in images:
-            base = (upload.filename or "").split("/")[-1]
-            if not base:
-                continue
-            dest = tmp_dir / base
-            with dest.open("wb") as fh:
-                while True:
-                    chunk = await upload.read(64 * 1024)
-                    if not chunk:
-                        break
-                    fh.write(chunk)
-            by_basename[base] = dest
+        by_basename = await _bulk_stage_images(images, tmp_dir)
 
         inserted: list[str] = []
         errors: list[str] = []
         for line_no, row in enumerate(rows, start=2):
             try:
-                resolved, is_frames_row = _resolve_row_assets(
+                resolved, is_frames_row = _bulk_resolve_row_assets(
                     row, by_basename,
                 )
                 target = int((row.get("target_count") or "").strip() or "0")
@@ -352,7 +400,7 @@ async def bulk_import_route(
                         AssetDraft(path=p, kind=k, copy_into_managed_dir=True)
                         for (p, k) in resolved
                     ],
-                    flow_mode=_row_flow_mode(
+                    flow_mode=_bulk_row_flow_mode(
                         row, force_subtab_frames=is_frames_row,
                     ),
                 )
@@ -371,6 +419,110 @@ async def bulk_import_route(
         skipped=len(errors),
         errors=errors,
         task_ids=inserted,
+    )
+
+
+@router.post("/bulk-validate", response_model=BulkPreviewSummary)
+async def bulk_validate_route(
+    csv_file: UploadFile = File(..., description="CSV with task rows"),
+    images: List[UploadFile] = File(
+        default_factory=list,
+        description="Image files referenced by the CSV (optional for "
+                    "validation — missing images are surfaced as errors "
+                    "without aborting the rest of the preview)",
+    ),
+) -> BulkPreviewSummary:
+    """Dry-run preview of a bulk import.
+
+    Validates every row exactly as ``/bulk-import`` would and returns
+    a per-row pass/fail breakdown so the operator can fix the CSV
+    before any task lands in the DB. No tasks are created. The temp
+    image dir is cleaned up before the response is sent.
+
+    Compared to the live import (which inserts as it goes, then lists
+    skipped rows), this surfaces every problem up-front so the
+    operator doesn't have to clean up half-imported state.
+    """
+    import shutil as _shutil
+    import tempfile as _tempfile
+
+    rows = await _bulk_decode_csv(csv_file)
+
+    tmp_dir = Path(_tempfile.mkdtemp(prefix="flow_bulk_validate_"))
+    try:
+        by_basename = await _bulk_stage_images(images, tmp_dir)
+
+        preview_rows: list[BulkPreviewRow] = []
+        for line_no, row in enumerate(rows, start=2):
+            sku = (row.get("sku_id") or "").strip()
+            cre = (row.get("creative_id") or "").strip()
+            seg = (row.get("segment_id") or "").strip()
+            target_str = (row.get("target_count") or "").strip()
+            try:
+                target = int(target_str) if target_str else 0
+            except ValueError:
+                target = None
+
+            try:
+                resolved, is_frames_row = _bulk_resolve_row_assets(
+                    row, by_basename,
+                )
+                kind_label = (
+                    (row.get("asset_kind") or row.get("source_asset_type")
+                     or "reference").strip()
+                )
+                # Validate scalar required fields explicitly so the
+                # preview catches them too — mirrors what
+                # ``create_task`` would reject.
+                if not sku:
+                    raise ValueError("sku_id 不能为空")
+                if not cre:
+                    raise ValueError("creative_id 不能为空")
+                if not seg:
+                    raise ValueError("segment_id 不能为空")
+                if not (row.get("video_prompt") or "").strip():
+                    raise ValueError("video_prompt 不能为空")
+                if target is None or target <= 0:
+                    raise ValueError(
+                        f"target_count 必须是正整数（当前 {target_str!r}）"
+                    )
+
+                # Build a flow_mode dict purely so we can summarize it
+                # for the preview without persisting anything.
+                fm = _bulk_row_flow_mode(
+                    row, force_subtab_frames=is_frames_row,
+                )
+                fm_parts: list[str] = []
+                if fm is not None:
+                    for k in ("subtab", "aspect", "model",
+                              "output_count", "duration_sec"):
+                        v = getattr(fm, k, None)
+                        if v is not None:
+                            fm_parts.append(f"{k}={v}")
+
+                preview_rows.append(BulkPreviewRow(
+                    line_no=line_no, ok=True,
+                    sku_id=sku, creative_id=cre, segment_id=seg,
+                    target_count=target,
+                    asset_summary=_bulk_summarize_assets(
+                        resolved, kind_label,
+                    ),
+                    flow_mode_summary=", ".join(fm_parts),
+                ))
+            except (ValueError, KeyError) as exc:
+                preview_rows.append(BulkPreviewRow(
+                    line_no=line_no, ok=False,
+                    sku_id=sku, creative_id=cre, segment_id=seg,
+                    target_count=target if target is not None else 0,
+                    error=str(exc),
+                ))
+    finally:
+        _shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    return BulkPreviewSummary(
+        valid=sum(1 for r in preview_rows if r.ok),
+        invalid=sum(1 for r in preview_rows if not r.ok),
+        rows=preview_rows,
     )
 
 
