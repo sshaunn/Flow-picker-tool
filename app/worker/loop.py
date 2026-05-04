@@ -55,6 +55,12 @@ CIRCUIT_BREAKER_STATES: frozenset[PageState] = frozenset({
     PageState.UNUSUAL_ACTIVITY,
     PageState.LOGIN_REQUIRED,
     PageState.CAPTCHA_OR_VERIFICATION,
+    # Account-level Flow access denied. Strike system (in
+    # scheduler/state.py) only escalates ``unusual_activity`` to
+    # cooldown — every other error_type goes straight to
+    # manual_check, which is what we want here. The operator must
+    # fix the subscription or swap the account; no retry will help.
+    PageState.NO_FLOW_ACCESS,
 })
 
 # Page states that are transient / page-level (not workstation health issues).
@@ -72,6 +78,7 @@ _PAGE_STATE_TO_ERROR_TYPE = {
     PageState.CAPTCHA_OR_VERIFICATION: "captcha_or_verification",
     PageState.PAGE_LOAD_FAILED: "page_load_failed",
     PageState.SERVICE_UNAVAILABLE: "service_unavailable",
+    PageState.NO_FLOW_ACCESS: "no_flow_access",
 }
 
 

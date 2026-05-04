@@ -207,6 +207,38 @@ def test_resumed_task_gets_full_max_round_budget(db_path: Path, app_config) -> N
     assert outcome.generation_round_count == 22
 
 
+def test_no_flow_access_on_open_marks_workstation_manual_check(
+    db_path: Path, app_config,
+) -> None:
+    """Account-level Flow access denial: skip strike escalation, flip
+    WS straight to manual_check, mark task retry_waiting (not failed —
+    operator may swap to another account and the task picks up)."""
+    cfg = app_config.generation
+    _seed_task(db_path, target=4)
+    flow = MockFlowPort(
+        [],
+        initial_state=PageState.NO_FLOW_ACCESS,
+    )
+    log = logging.getLogger("test")
+    conn = connect(db_path)
+    try:
+        outcome = execute_task(
+            conn=conn, log=log, flow=flow, workstation_id="WS_A",
+            task=_task(), config=cfg,
+            output_root=Path(app_config.output_root),
+            run_date=date(2026, 4, 28),
+        )
+    finally:
+        conn.close()
+    # Task ends retry_waiting (operator may fix the account; don't
+    # burn the task to failed).
+    assert outcome.final_status == "retry_waiting"
+    assert outcome.last_error_type == "no_flow_access"
+    # Workstation outcome routes through circuit breaker → manual_check.
+    assert outcome.workstation_outcome == "manual_check"
+    assert outcome.downloaded_count == 0
+
+
 def test_resumed_task_does_not_pause_before_first_session_round(
     db_path: Path, app_config, monkeypatch,
 ) -> None:

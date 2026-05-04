@@ -25,6 +25,11 @@ class StatePhrases(BaseModel):
     # that should NOT halt the workstation — the worker retries within
     # the same round (optionally after toggling a Flow setting).
     generation_retryable: list[str] = Field(default_factory=list)
+    # Account-level: Flow says "you don't have access" (subscription
+    # expired / region restricted / account flagged for repeat
+    # automation abuse). Binary state — no cooldown / strike helps.
+    # WS goes straight to manual_check.
+    no_flow_access: list[str] = Field(default_factory=list)
 
 
 class Selectors(BaseModel):

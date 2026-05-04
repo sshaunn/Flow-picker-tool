@@ -50,6 +50,15 @@ _TASK_ERROR_MESSAGES: dict[str, tuple[str, Optional[str]]] = {
         "Flow 页面操作失败。",
         "已自动重试。如果连续多次出现，账号可能进入冷却。",
     ),
+    "no_flow_access": (
+        "该 Google 账号没有 Flow 访问权限。",
+        "Flow 显示「You don't have access to Flow」。"
+        "可能原因：1) 账号没有 Google AI Pro / Ultra 订阅；"
+        "2) 账号被 Google 标记为长期违规自动化使用，"
+        "Flow 访问权被撤销；3) 账号所在地区暂不支持。"
+        "请用普通浏览器登录该账号访问 Flow 验证，"
+        "或换一个有访问权的账号。",
+    ),
 }
 
 
@@ -67,6 +76,12 @@ _WS_COOLDOWN_REASONS: dict[str, tuple[str, Optional[str]]] = {
     "manual_check": (
         "该账号已被标记为需要人工处理。",
         "请去账号详情页点击「登录并识别 Project」重新登录以恢复。",
+    ),
+    "no_flow_access": (
+        "该 Google 账号没有 Flow 访问权限。",
+        "Flow 提示「You don't have access to Flow」。"
+        "重新登录无法解决——需要购买 Google AI Pro / Ultra 订阅，"
+        "或换一个有访问权的账号。",
     ),
 }
 

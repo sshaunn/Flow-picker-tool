@@ -54,6 +54,15 @@ state_phrases:
     - "this page isn't working"
     - "ERR_CONNECTION"
     - "Aw, snap"
+  # Account-level access denial. Match the exact sentence Flow shows
+  # ("It looks like you don't have access to Flow") so we don't false-
+  # positive on help-center pages or generic 'access' wording.
+  # Binary: no cooldown helps — operator must fix the subscription
+  # or swap the account.
+  no_flow_access:
+    - "you don't have access to Flow"
+    - "you do not have access to Flow"
+    - "don't have access to Flow"
   # Flow service-level rate limit / overload. NOT a workstation-specific issue —
   # treat it as a transient page failure and back off; do not flip to manual_check.
   service_unavailable:

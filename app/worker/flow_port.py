@@ -27,6 +27,13 @@ class PageState(str, Enum):
     # Flow itself is rate-limited / overloaded ("high demand", quota exceeded).
     # Service-level, not workstation-level — back off and retry on this WS later.
     SERVICE_UNAVAILABLE = "service_unavailable"
+    # Account-level Flow access denied: "It looks like you don't have
+    # access to Flow." This is binary (subscription expired / region
+    # not supported / Google revoked Flow access for repeat
+    # automation abuse). Cooldown won't help — strike escalation is
+    # skipped, the WS goes straight to manual_check so the operator
+    # can fix the subscription or swap the account.
+    NO_FLOW_ACCESS = "no_flow_access"
 
 
 @dataclass

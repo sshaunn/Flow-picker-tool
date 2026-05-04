@@ -362,7 +362,15 @@ class PlaywrightFlowPort(FlowPort):
     def _classify_state(self) -> PageState:
         body = self._body_text()
         phrases = self._cfg.state_phrases
-        # Service-level errors first — phrases like "Audio generation failed"
+        # Account-level access denial first — most severe, most
+        # specific phrase ("don't have access to Flow"). Cooldown
+        # / strikes won't help; bail to manual_check so the operator
+        # can fix the subscription or swap the account.
+        hit = _phrase_match_which(body, phrases.no_flow_access)
+        if hit is not None:
+            _LOG.warning("[classify] NO_FLOW_ACCESS matched %r", hit)
+            return PageState.NO_FLOW_ACCESS
+        # Service-level errors next — phrases like "Audio generation failed"
         # are unambiguous, while "unusual activity" can also appear in help
         # text. Order matters here: matches by specificity, not severity.
         hit = _phrase_match_which(body, phrases.service_unavailable)
