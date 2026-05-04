@@ -138,7 +138,19 @@ def execute_task(
     # against ``max_round_per_task`` so a resumed task gets a full
     # ``max_round`` window of fresh attempts instead of immediately
     # tripping the cap left over from the previous session.
-    round_count = task.initial_round_count
+    #
+    # Authoritative cursor source is the actual MAX(generation_round)
+    # in ``task_results`` — defends against operator edits to the
+    # ``tasks.generation_round_count`` column that would otherwise let
+    # the worker write rounds 1..N already used and silently skip on
+    # the UNIQUE collision.
+    cursor_row = conn.execute(
+        "SELECT COALESCE(MAX(generation_round), 0) AS max_round "
+        "FROM task_results WHERE task_id = ?",
+        (task.task_id,),
+    ).fetchone()
+    persisted_max = int(cursor_row["max_round"] if cursor_row else 0)
+    round_count = max(task.initial_round_count, persisted_max)
     session_round_count = 0
     last_error_type: str | None = None
     last_error_message: str | None = None

@@ -207,6 +207,62 @@ def test_resumed_task_gets_full_max_round_budget(db_path: Path, app_config) -> N
     assert outcome.generation_round_count == 22
 
 
+def test_storage_cursor_clamps_to_existing_task_results(
+    db_path: Path, app_config,
+) -> None:
+    """If an operator manually reset ``tasks.generation_round_count`` to
+    0 but the ``task_results`` table still has rows from previous
+    attempts, the worker must NOT write into rounds 1..N that already
+    exist (the UNIQUE constraint silently skips inserts → looks like
+    progress but downloaded_count never grows).
+
+    Authoritative cursor is MAX(generation_round) in task_results.
+    """
+    cfg = app_config.generation
+    cfg.max_round_per_task = 2
+    _seed_task(db_path, target=8)
+    # Pre-seed task_results as if rounds 1..3 already happened.
+    conn = connect(db_path)
+    try:
+        for r in (1, 2, 3):
+            conn.execute(
+                "INSERT INTO task_results (task_id, creative_id, segment_id, "
+                "workstation_id, generation_round, sequence_no, video_file_path) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                ("T1", "cre", "A", "WS_OLD", r, 1, f"/old/{r}.mp4"),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    flow = MockFlowPort([MockRoundPlan.success(2), MockRoundPlan.success(2)])
+    log = logging.getLogger("test")
+    # initial_round_count=0 simulates a stale ``tasks`` row after an
+    # operator reset.
+    resumed = TaskInput(
+        task_id="T1", sku_id="sku", creative_id="cre", segment_id="A",
+        source_asset_path=Path("/x.png"), video_prompt="p",
+        target_count=8,
+        initial_downloaded_count=3,
+        initial_round_count=0,
+    )
+    conn = connect(db_path)
+    try:
+        outcome = execute_task(
+            conn=conn, log=log, flow=flow, workstation_id="WS_A",
+            task=resumed, config=cfg,
+            output_root=Path(app_config.output_root),
+            run_date=date(2026, 4, 28),
+        )
+    finally:
+        conn.close()
+    # Two fresh rounds ran (4, 5), each writing 2 candidates → 4 new
+    # downloads on top of carried-over 3 = 7 total.
+    assert outcome.downloaded_count == 7
+    # Storage cursor advanced past the persisted max (3), not from 0.
+    assert outcome.generation_round_count == 5
+
+
 def test_max_round_with_partial_marks_failed(db_path: Path, app_config) -> None:
     """target=8, max_round=2, 2 rounds × 2 downloads = 4/8 -> failed."""
     cfg = app_config.generation
