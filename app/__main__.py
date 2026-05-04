@@ -88,7 +88,14 @@ def _pick_free_port(preferred: int) -> int:
 def _setup_file_logging() -> None:
     """Mirror logs to ``%LOCALAPPDATA%\\FlowHarvester\\logs\\app.log``
     in addition to the cmd window, so customers can attach the file when
-    they ping support."""
+    they ping support.
+
+    Attach the handler ONLY to the package roots (``flow_harvester``
+    and ``uvicorn``); descendants propagate up via Python's logger
+    hierarchy. Attaching to both parent and named children would
+    duplicate every line in app.log (the customer-side bug we saw —
+    daemon-started messages appearing twice in the same millisecond).
+    """
     from app import paths as app_paths
     log_dir = app_paths.logs_dir()
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -101,10 +108,11 @@ def _setup_file_logging() -> None:
     handler.setFormatter(logging.Formatter(
         "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     ))
-    for name in ("uvicorn", "uvicorn.error", "uvicorn.access",
-                 "flow_harvester", "flow_harvester.scheduler",
-                 "flow_harvester.daemon", "flow_harvester.web",
-                 "flow_harvester.login"):
+    # Only attach to the two trees we care about. Their descendants
+    # (``flow_harvester.scheduler``, ``flow_harvester.worker.*``,
+    # ``uvicorn.error``, ...) will reach this handler via propagation
+    # as long as they don't disable propagate themselves.
+    for name in ("uvicorn", "flow_harvester"):
         logger = logging.getLogger(name)
         logger.addHandler(handler)
         logger.setLevel(logging.INFO)

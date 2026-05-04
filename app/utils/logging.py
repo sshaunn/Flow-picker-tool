@@ -57,10 +57,17 @@ def get_scheduler_logger(log_root: Path | str) -> Logger:
     if log.handlers:
         return log
     log.setLevel(logging.INFO)
+    # Own per-component file for focused debugging.
     log.addHandler(_file_handler(Path(log_root) / "scheduler.log"))
     log.addHandler(_file_handler(Path(log_root) / "errors.log", logging.WARNING))
-    log.addHandler(_console_handler())
-    log.propagate = False
+    # Propagate to ``flow_harvester`` parent so the bundled exe's
+    # ``app.log`` (set up in ``app/__main__.py``) and the parent's
+    # console handler also receive these records — without
+    # propagation the customer's app.log loses every scheduler /
+    # worker line, and that's where the actually useful diagnostics
+    # live. Console output comes from the parent's handler so we
+    # don't add one here (would duplicate).
+    log.propagate = True
     return log
 
 
@@ -72,8 +79,11 @@ def get_worker_logger(log_root: Path | str, workstation_id: str) -> Logger:
     log.setLevel(logging.INFO)
     log.addHandler(_file_handler(Path(log_root) / f"worker_{workstation_id}.log"))
     log.addHandler(_file_handler(Path(log_root) / "errors.log", logging.WARNING))
-    log.addHandler(_console_handler())
-    log.propagate = False
+    # Propagate to parent so worker activity (task end, download
+    # failures, ban detection) lands in the bundled exe's app.log,
+    # which is what customers send to support. Parent has the
+    # console handler so don't add one here.
+    log.propagate = True
     return log
 
 
