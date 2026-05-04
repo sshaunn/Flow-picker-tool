@@ -34,6 +34,15 @@ state_phrases:
     - "We noticed some unusual activity"  # Flow's per-generation flag
     - "we noticed some unusual activity"
     - "Unusual activity from your computer network"
+    # Per-account soft rate limit: Flow flashes a "Failed" card with
+    # this exact text and a retry button. Account isn't banned — a
+    # short wait + retry works. Bucketing into unusual_activity reuses
+    # the strike system's tiered cooldowns (first hit = 5 min, exactly
+    # what "wait a moment" is asking for); the worker moves on to
+    # another account during that window.
+    - "You're requesting generations too quickly"
+    - "you're requesting generations too quickly"
+    - "requesting generations too quickly"
   login_required:
     - "Use your Google Account"
     - "Sign in - Google Accounts"
