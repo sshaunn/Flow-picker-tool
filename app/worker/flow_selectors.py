@@ -45,6 +45,13 @@ class Selectors(BaseModel):
     prompt_attach_dialog: str = ""
     prompt_attach_upload_target: str = ""
 
+    # Frames sub-tab variants of the trigger button. Same dialog + upload
+    # target as ingredients; only the trigger differs (two slots labelled
+    # ``Start`` and ``End`` instead of a single ``+``). Both empty falls
+    # back to ingredients-style upload.
+    prompt_attach_button_start: str = ""
+    prompt_attach_button_end: str = ""
+
     # Legacy fields — retained only so older flow-selectors.yaml files keep
     # validating. The adapter does not use them.
     generation_complete_marker: str = ""

@@ -48,11 +48,16 @@
         <select name="asset_kind"
                 class="w-full rounded border border-slate-300 px-3 py-2 text-sm">
           <option value="reference" selected>参考图（Ingredients 模式）</option>
-          <option value="first_frame">首帧</option>
-          <option value="last_frame">末帧</option>
+          <option value="frames_pair">起止帧对（Frames 模式：第1张=Start，第2张=End）</option>
+          <option value="first_frame">仅首帧</option>
+          <option value="last_frame">仅末帧</option>
           <option value="previous_segment_frame">上一片段尾帧</option>
           <option value="other">其他</option>
         </select>
+        <p class="mt-1 text-xs text-slate-500">
+          Frames 模式必须配套：上面的"画面比例 / 模型"参数里 subtab 选 frames，
+          且这里选「起止帧对」并上传正好 2 张图。
+        </p>
       </div>
     </div>
 

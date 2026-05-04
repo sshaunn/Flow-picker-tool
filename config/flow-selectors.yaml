@@ -85,6 +85,15 @@ selectors:
   prompt_attach_dialog: '[role="dialog"][data-state="open"]'
   prompt_attach_upload_target: 'text="Upload image"'
 
+  # Frames sub-tab variant: in Frames mode the "+" button is replaced
+  # by two named slots, "Start" and "End", flanking a swap-arrow icon.
+  # Each opens the same picker dialog as ingredients ("Upload image"),
+  # so reuse ``prompt_attach_dialog`` + ``prompt_attach_upload_target``
+  # for the inner flow. Selected by exact text match — Flow renders
+  # them as plain ``<button>`` with the literal text content.
+  prompt_attach_button_start: 'button:text-is("Start")'
+  prompt_attach_button_end: 'button:text-is("End")'
+
   # The "Create" button with the arrow_forward Material Symbol.
   # The other on-page "Create" is the model-picker (icon: add_2).
   generate_button: 'button:has-text("arrow_forward"):has-text("Create")'

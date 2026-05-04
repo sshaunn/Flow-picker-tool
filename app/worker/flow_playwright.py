@@ -423,29 +423,34 @@ class PlaywrightFlowPort(FlowPort):
     def upload_source_assets(self, assets: list[SourceAsset]) -> None:
         """Attach one or more source assets to the prompt as inline chips.
 
-        Flow has two upload paths and they trigger different generation
-        routers:
+        Flow has two distinct prompt-attach UIs depending on which
+        sub-tab is active:
 
-        * "Add Media" / Ingredients reference list — images here are NOT
-          part of the prompt, Flow treats them as character references
-          and routes the request through the image-only model.
-        * "+" button next to the prompt → picker dialog → Upload image →
-          OS file chooser. The chosen image becomes a chip *inside* the
-          prompt and Flow routes the request through the configured video
-          model (Veo 3.1). **This is the path the worker uses.**
+        * **Ingredients sub-tab** — single ``+`` button next to the
+          prompt opens a picker dialog. All uploads land in one
+          unordered slot.
+        * **Frames sub-tab** — two named slots, ``Start`` and ``End``,
+          flanking a swap-arrow icon. Each opens the same picker
+          dialog. Used for first-frame / last-frame video generation.
 
-        The flow per asset:
+        Routing rule: if any asset has ``kind`` in
+        ``{"first_frame", "last_frame"}`` we use the frames path
+        (asserts subtab=frames is active and the named-button
+        selectors are configured). Otherwise we use the ingredients
+        path (single ``+`` button).
+
+        Per-asset flow (shared by both paths):
             1. Dismiss any open popups.
-            2. Click the "+" button.
+            2. Click the trigger button (``+`` / ``Start`` / ``End``).
             3. Wait for the picker ``[role="dialog"][data-state="open"]``.
-            4. Click "Upload image" — this fires the OS file chooser.
-            5. Use ``expect_file_chooser`` to set the file.
-            6. Wait for the dialog to close (image now a chip in prompt).
-            7. Settle a moment, then loop for the next asset.
+            4. Reuse-from-library if the same filename is already in
+               the project asset list, else click "Upload image" →
+               OS file chooser → set_files.
+            5. Wait for the dialog to close (image now a chip in prompt).
 
-        If the prompt-attach selectors aren't configured (legacy yaml or
-        non-Flow targets in tests), the adapter falls back to the old
-        ``set_input_files`` path on the hidden ``<input type="file">``.
+        If the prompt-attach selectors aren't configured (legacy yaml
+        or non-Flow targets in tests), the adapter falls back to the
+        old ``set_input_files`` path on the hidden file input.
         """
         if not assets:
             raise FlowPortError("upload_source_assets called with empty list")
@@ -454,7 +459,25 @@ class PlaywrightFlowPort(FlowPort):
         sel_btn = self._cfg.selectors.prompt_attach_button
         sel_dlg = self._cfg.selectors.prompt_attach_dialog
         sel_target = self._cfg.selectors.prompt_attach_upload_target
+        sel_start = self._cfg.selectors.prompt_attach_button_start
+        sel_end = self._cfg.selectors.prompt_attach_button_end
 
+        # ── Frames mode? (any asset tagged first_frame / last_frame)
+        frame_kinds = {"first_frame", "last_frame"}
+        if any(a.kind in frame_kinds for a in assets):
+            if not (sel_start and sel_end and sel_dlg and sel_target):
+                raise FlowPortError(
+                    "frames mode upload requires prompt_attach_button_start "
+                    "/ prompt_attach_button_end / prompt_attach_dialog "
+                    "/ prompt_attach_upload_target selectors to be configured"
+                )
+            self._upload_via_frame_buttons(
+                assets, sel_start=sel_start, sel_end=sel_end,
+                sel_dlg=sel_dlg, sel_target=sel_target,
+            )
+            return
+
+        # ── Ingredients mode (default).
         if sel_btn and sel_dlg and sel_target:
             self._upload_via_prompt_attach(
                 assets, sel_btn=sel_btn, sel_dlg=sel_dlg, sel_target=sel_target
@@ -463,6 +486,62 @@ class PlaywrightFlowPort(FlowPort):
 
         # ── Legacy fallback: hidden file input on the Ingredients sub-tab.
         self._upload_via_hidden_input(assets)
+
+    def _upload_via_frame_buttons(
+        self,
+        assets: list[SourceAsset],
+        *,
+        sel_start: str,
+        sel_end: str,
+        sel_dlg: str,
+        sel_target: str,
+    ) -> None:
+        """Route assets to Start / End slots by ``kind`` and upload each
+        through the same dialog flow as ingredients.
+
+        Refuses on ambiguity (more than one first_frame / last_frame, or
+        any other kind mixed in) — frames mode expects exactly one
+        first_frame and/or one last_frame asset.
+        """
+        first: SourceAsset | None = None
+        last: SourceAsset | None = None
+        for a in assets:
+            if a.kind == "first_frame":
+                if first is not None:
+                    raise FlowPortError(
+                        "frames mode expects exactly one first_frame asset"
+                    )
+                first = a
+            elif a.kind == "last_frame":
+                if last is not None:
+                    raise FlowPortError(
+                        "frames mode expects exactly one last_frame asset"
+                    )
+                last = a
+            else:
+                raise FlowPortError(
+                    f"frames mode received asset with unsupported kind={a.kind!r} "
+                    "(expected first_frame or last_frame)"
+                )
+        if first is None and last is None:
+            raise FlowPortError(
+                "frames mode requires at least one of first_frame / last_frame"
+            )
+
+        sequence: list[tuple[str, str, SourceAsset]] = []
+        if first is not None:
+            sequence.append((sel_start, "Start", first))
+        if last is not None:
+            sequence.append((sel_end, "End", last))
+
+        for idx, (button_sel, label, asset) in enumerate(sequence, start=1):
+            self._upload_one_asset(
+                asset,
+                idx=idx, total=len(sequence),
+                button_sel=button_sel, button_label=label,
+                sel_dlg=sel_dlg, sel_target=sel_target,
+                settle_after=(idx < len(sequence)),
+            )
 
     def _upload_via_prompt_attach(
         self,
@@ -473,92 +552,124 @@ class PlaywrightFlowPort(FlowPort):
         sel_target: str,
     ) -> None:
         for idx, asset in enumerate(assets, start=1):
-            self._dismiss_popups()
+            self._upload_one_asset(
+                asset,
+                idx=idx, total=len(assets),
+                button_sel=sel_btn, button_label="+",
+                sel_dlg=sel_dlg, sel_target=sel_target,
+                settle_after=(idx < len(assets)),
+            )
 
-            # 1. Click "+" to open the picker.
-            try:
-                plus = self._page.locator(sel_btn).first
-                plus.wait_for(
-                    state="attached",
-                    timeout=self.page_action_timeout_sec * 1000,
-                )
-                plus.click()
-            except Exception as exc:
-                raise FlowPortError(
-                    f"failed to click prompt-attach '+' for asset #{idx} ({asset.path}): {exc}"
-                ) from exc
+    def _upload_one_asset(
+        self,
+        asset: SourceAsset,
+        *,
+        idx: int,
+        total: int,
+        button_sel: str,
+        button_label: str,
+        sel_dlg: str,
+        sel_target: str,
+        settle_after: bool,
+    ) -> None:
+        """Upload a single asset through the click-button → dialog →
+        upload-image flow.
 
-            # 2. Wait for the picker dialog.
-            try:
-                dialog = self._page.locator(sel_dlg).first
-                dialog.wait_for(state="visible", timeout=10_000)
-            except Exception as exc:
-                raise FlowPortError(
-                    f"prompt-attach dialog didn't open for asset #{idx}: {exc}"
-                ) from exc
+        Shared by ingredients (``+`` trigger) and frames (``Start`` /
+        ``End`` triggers). Both UIs open the same picker dialog; only
+        the trigger selector + label differ. ``button_label`` is a
+        human-readable token used in error / log messages.
+        """
+        self._dismiss_popups()
 
-            # 3. Reuse-existing-or-upload: clicking the "+ → Upload image"
-            # path in Flow always pushes a *new* row into the project asset
-            # library (even if the same filename already exists), causing
-            # the library to fill up with duplicates over many runs.
-            # Instead, look for a thumbnail whose ``<img alt>`` matches
-            # our filename and click it.
-            #
-            # Success signal is **dialog auto-closure** — Flow dismisses
-            # the picker the moment a thumbnail is successfully selected.
-            # If reuse fails, the dialog stays open and we fall straight
-            # through to Upload image (no need to close + re-open).
-            existing = self._find_existing_library_asset(dialog, asset.path.name)
-            attached_via_reuse = False
-            if existing is not None:
-                attached_via_reuse = self._try_attach_existing(
-                    dialog, existing, asset.path.name
-                )
-                if attached_via_reuse:
-                    _LOG.info(
-                        "uploaded asset %d/%d via prompt-attach (reused library) kind=%s name=%s",
-                        idx, len(assets), asset.kind, asset.path.name,
-                    )
-                else:
-                    _LOG.warning(
-                        "[upload] reuse click failed for %s (no strategy closed dialog) "
-                        "— falling back to fresh upload (dialog still open)",
-                        asset.path.name,
-                    )
+        # 1. Click the trigger to open the picker.
+        try:
+            trigger = self._page.locator(button_sel).first
+            trigger.wait_for(
+                state="attached",
+                timeout=self.page_action_timeout_sec * 1000,
+            )
+            trigger.click()
+        except Exception as exc:
+            raise FlowPortError(
+                f"failed to click prompt-attach {button_label!r} for "
+                f"asset #{idx} ({asset.path}): {exc}"
+            ) from exc
 
-            if not attached_via_reuse:
-                try:
-                    upload_target = dialog.locator(sel_target).first
-                    with self._page.expect_file_chooser(timeout=15_000) as fc_info:
-                        upload_target.click()
-                    fc_info.value.set_files(str(asset.path))
-                except Exception as exc:
-                    try:
-                        self._page.keyboard.press("Escape")
-                    except Exception:  # noqa: BLE001
-                        pass
-                    raise FlowPortError(
-                        f"prompt-attach upload failed for asset #{idx} ({asset.path}): {exc}"
-                    ) from exc
+        # 2. Wait for the picker dialog.
+        try:
+            dialog = self._page.locator(sel_dlg).first
+            dialog.wait_for(state="visible", timeout=10_000)
+        except Exception as exc:
+            raise FlowPortError(
+                f"prompt-attach dialog didn't open after clicking "
+                f"{button_label!r} for asset #{idx}: {exc}"
+            ) from exc
+
+        # 3. Reuse-existing-or-upload: clicking the dialog's
+        # "Upload image" path in Flow always pushes a *new* row into
+        # the project asset library (even if the same filename already
+        # exists), causing the library to fill up with duplicates over
+        # many runs. Instead, look for a thumbnail whose ``<img alt>``
+        # matches our filename and click it.
+        #
+        # Success signal is **dialog auto-closure** — Flow dismisses
+        # the picker the moment a thumbnail is successfully selected.
+        # If reuse fails, the dialog stays open and we fall straight
+        # through to Upload image (no need to close + re-open).
+        existing = self._find_existing_library_asset(dialog, asset.path.name)
+        attached_via_reuse = False
+        if existing is not None:
+            attached_via_reuse = self._try_attach_existing(
+                dialog, existing, asset.path.name
+            )
+            if attached_via_reuse:
                 _LOG.info(
-                    "uploaded asset %d/%d via prompt-attach (fresh upload) kind=%s path=%s",
-                    idx, len(assets), asset.kind, asset.path,
+                    "uploaded asset %d/%d via %s (reused library) kind=%s name=%s",
+                    idx, total, button_label, asset.kind, asset.path.name,
+                )
+            else:
+                _LOG.warning(
+                    "[upload] reuse click failed for %s (no strategy closed dialog) "
+                    "— falling back to fresh upload (dialog still open)",
+                    asset.path.name,
                 )
 
-            # 4. Wait for the dialog to close (image is now a prompt chip).
+        if not attached_via_reuse:
             try:
-                dialog.wait_for(state="hidden", timeout=10_000)
-            except Exception:  # noqa: BLE001
+                upload_target = dialog.locator(sel_target).first
+                with self._page.expect_file_chooser(timeout=15_000) as fc_info:
+                    upload_target.click()
+                fc_info.value.set_files(str(asset.path))
+            except Exception as exc:
                 try:
                     self._page.keyboard.press("Escape")
                 except Exception:  # noqa: BLE001
                     pass
-                self._page.wait_for_timeout(300)
+                raise FlowPortError(
+                    f"prompt-attach upload failed via {button_label!r} for "
+                    f"asset #{idx} ({asset.path}): {exc}"
+                ) from exc
+            _LOG.info(
+                "uploaded asset %d/%d via %s (fresh upload) kind=%s path=%s",
+                idx, total, button_label, asset.kind, asset.path,
+            )
 
-            # 5. Settle window so the chip mounts before we open the next
-            # picker iteration; otherwise Flow can drop the in-flight chip.
-            if idx < len(assets):
-                self._page.wait_for_timeout(800)
+        # 4. Wait for the dialog to close (image is now a prompt chip).
+        try:
+            dialog.wait_for(state="hidden", timeout=10_000)
+        except Exception:  # noqa: BLE001
+            try:
+                self._page.keyboard.press("Escape")
+            except Exception:  # noqa: BLE001
+                pass
+            self._page.wait_for_timeout(300)
+
+        # 5. Settle window so the chip mounts before the caller opens
+        # the next picker iteration; otherwise Flow can drop the
+        # in-flight chip.
+        if settle_after:
+            self._page.wait_for_timeout(800)
 
     def _try_attach_existing(self, dialog, existing, filename: str) -> bool:
         """Click strategies for attaching an existing library asset.

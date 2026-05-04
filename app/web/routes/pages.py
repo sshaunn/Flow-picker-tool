@@ -359,6 +359,25 @@ async def tasks_create(
     if not assets:
         raise HTTPException(status_code=400, detail="at least one asset required")
 
+    # ``frames_pair`` is the UI shortcut for Frames mode: 1 dropdown
+    # value, 2 uploads, auto-tagged first_frame / last_frame in upload
+    # order. Force ``mode_subtab=frames`` so the worker switches the
+    # UI tab even if the customer forgot to set it on the form.
+    if asset_kind == "frames_pair":
+        if len(assets) != 2:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Frames 模式必须上传 2 张图片（第 1 张作为 Start，"
+                    f"第 2 张作为 End），收到 {len(assets)} 张"
+                ),
+            )
+        per_asset_kinds = ["first_frame", "last_frame"]
+        if mode_subtab in (None, "", "ingredients"):
+            mode_subtab = "frames"
+    else:
+        per_asset_kinds = [asset_kind] * len(assets)
+
     tmp_dir = Path(tempfile.mkdtemp(prefix="flow_upload_"))
     try:
         asset_drafts: list[AssetDraft] = []
@@ -372,7 +391,8 @@ async def tasks_create(
                         break
                     fh.write(chunk)
             asset_drafts.append(AssetDraft(
-                path=dest, kind=asset_kind, copy_into_managed_dir=True,
+                path=dest, kind=per_asset_kinds[idx - 1],
+                copy_into_managed_dir=True,
             ))
         flow_mode = _build_flow_mode(
             tab=mode_tab, subtab=mode_subtab, aspect=mode_aspect,

@@ -299,6 +299,25 @@ async def create_route(
     if not assets:
         raise HTTPException(status_code=400, detail="at least one asset file required")
 
+    # ``frames_pair`` is a synthetic UI shortcut for Frames mode — the
+    # form sends one kind value but we need to split: image #1 becomes
+    # ``first_frame`` (Start slot), image #2 becomes ``last_frame``
+    # (End slot). Reject any other count to avoid a half-configured
+    # frames task that the worker can't route.
+    if asset_kind == "frames_pair":
+        if len(assets) != 2:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Frames 模式必须上传 2 张图片（第 1 张作为 Start，"
+                    "第 2 张作为 End），收到 "
+                    f"{len(assets)} 张"
+                ),
+            )
+        per_asset_kinds = ["first_frame", "last_frame"]
+    else:
+        per_asset_kinds = [asset_kind] * len(assets)
+
     # Stream uploads to a temp dir; create_task() copies into assets_dir
     # and we discard the temps in finally.
     tmp_dir = Path(tempfile.mkdtemp(prefix="flow_upload_"))
@@ -314,7 +333,8 @@ async def create_route(
                         break
                     fh.write(chunk)
             asset_drafts.append(AssetDraft(
-                path=dest, kind=asset_kind, copy_into_managed_dir=True,
+                path=dest, kind=per_asset_kinds[idx - 1],
+                copy_into_managed_dir=True,
             ))
 
         draft = TaskDraft(
