@@ -852,7 +852,15 @@ class PlaywrightFlowPort(FlowPort):
         Slate ignores ``element.fill()`` and synthetic ``input`` events. The
         only reliable path is: focus → select-all → backspace → type via
         keyboard so Slate sees real key events.
+
+        Per-key delay is set so a 200-300 char Chinese / Malay prompt
+        takes ~20-40s to type instead of <1s. Veo's behavioral
+        fingerprint flags 1000+ chars-per-second typing as automation;
+        a humanized cadence keeps the per-generation 'unusual activity'
+        flag from firing on accounts that work fine when driven by a
+        human at the same workstation.
         """
+        import random
         self._require_page()
         # Notice dialog often appears between upload and paste — without
         # this dismiss, the dialog overlay intercepts our click on the
@@ -869,7 +877,14 @@ class PlaywrightFlowPort(FlowPort):
             # ``insert_text`` causes Veo to reject the generation with
             # "Failed, oops something went wrong" because Slate's input
             # validation expects keystroke events.
-            self._page.keyboard.type(prompt)
+            #
+            # Tiny per-char jitter around 80ms keeps the timing
+            # distribution human-shaped (real typists have variance,
+            # bots default to constant cadence). For a 300-char prompt
+            # that's ~24-30s — slightly slower than a fast typist but
+            # well within human range.
+            jitter_delay = random.randint(60, 110)
+            self._page.keyboard.type(prompt, delay=jitter_delay)
         except Exception as exc:
             raise FlowPortError(f"prompt input failed: {exc}") from exc
 
@@ -1290,11 +1305,25 @@ class PlaywrightFlowPort(FlowPort):
         Create click in a session — we sweep for it twice (immediately and
         after a short wait) before returning so ``wait_for_round_complete``
         doesn't deadlock waiting for candidates that will never appear.
+
+        Adds a short randomized "review pause" before clicking Create.
+        A human always pauses after typing to re-read the prompt
+        before submitting; clicking Create within milliseconds of the
+        last keystroke is one of the cleanest bot signatures, and Flow
+        has been observed to flag generations with that pattern as
+        ``unusual activity`` even when the account is otherwise
+        reachable manually.
         """
+        import random
         self._require_page()
         # Defensive sweep: same reason as paste_prompt — overlays kill
         # our click otherwise.
         self._dismiss_popups()
+        # Human-like review pause between typing and clicking Create.
+        # 1.5-3.5s is wide enough to not look mechanical, narrow enough
+        # to not slow throughput meaningfully (round time is dominated
+        # by Veo's 60-90s encode anyway).
+        self._page.wait_for_timeout(random.randint(1500, 3500))
         try:
             self._candidate_snapshot = set(self._collect_candidates_full().keys())
             _LOG.debug("pre-trigger snapshot has %d candidates", len(self._candidate_snapshot))
@@ -1324,7 +1353,23 @@ class PlaywrightFlowPort(FlowPort):
             )
         sel = self._cfg.selectors.generate_button
         try:
-            self._page.locator(sel).first.click()
+            btn = self._page.locator(sel).first
+            # Move the mouse to the button via several intermediate
+            # steps before clicking. Default ``.click()`` does an
+            # instant move + click, which is bot-shaped — real users
+            # generate a continuous mousemove stream as their cursor
+            # crosses the page. Patchright's stealth handles flag-
+            # level signals; behavior-level signals like this we have
+            # to fake ourselves.
+            try:
+                box = btn.bounding_box()
+                if box is not None:
+                    target_x = box["x"] + box["width"] / 2
+                    target_y = box["y"] + box["height"] / 2
+                    self._page.mouse.move(target_x, target_y, steps=15)
+            except Exception:  # noqa: BLE001 — best-effort
+                pass
+            btn.click(delay=random.randint(40, 120))
         except Exception as exc:
             raise FlowPortError(f"generate click failed: {exc}") from exc
 
