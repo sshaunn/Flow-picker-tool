@@ -127,6 +127,7 @@ def _execute_in_thread(
     mock_initial_state: PageState,
     run_date: date,
     captcha_action: str = "pause",
+    inter_round_pause_sec: Optional[int] = None,
 ) -> str:
     log = get_worker_logger(config.log_root, workstation.id)
     # Pull per-task flow_mode override (any field NULL means "use WS default").
@@ -169,6 +170,7 @@ def _execute_in_thread(
             output_root=Path(config.output_root),
             run_date=run_date,
             captcha_action=captcha_action,
+            inter_round_pause_sec=inter_round_pause_sec,
         )
         with transaction(conn):
             finalize_task(
@@ -343,6 +345,10 @@ def run_multi_workstation(
                     captcha_action=(
                         mode_profile.captcha_action
                         if mode_profile is not None else "pause"
+                    ),
+                    inter_round_pause_sec=(
+                        mode_profile.inter_round_pause_sec
+                        if mode_profile is not None else None
                     ),
                 )
 

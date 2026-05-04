@@ -58,6 +58,14 @@ def test_mode_profiles_have_distinct_safe_defaults() -> None:
     assert s.day.captcha_action == "pause"
     assert s.night.captcha_action == "skip"
     assert s.day.auto_resume_cap <= s.night.auto_resume_cap
+    # Night holds the inter-round pause well above day so each account
+    # gets more breathing room between Veo requests.
+    assert s.night.inter_round_pause_sec is not None
+    assert s.day.inter_round_pause_sec is not None
+    assert s.night.inter_round_pause_sec > s.day.inter_round_pause_sec
+    # Single-account night: the empirical 2-concurrent setting still
+    # banned out within 50min, so the safe default is sequential.
+    assert s.night.max_concurrent_ws == 1
 
 
 def test_mode_profile_rejects_unknown_captcha_action() -> None:

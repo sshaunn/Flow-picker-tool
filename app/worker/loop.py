@@ -116,6 +116,7 @@ def execute_task(
     output_root: Path,
     run_date: date,
     captcha_action: str = "pause",
+    inter_round_pause_sec: int | None = None,
 ) -> WorkerOutcome:
     seg_dir = ensure_segment_layout(
         output_root=output_root,
@@ -202,8 +203,13 @@ def execute_task(
             # Pause between consecutive rounds to spread requests so
             # Google's per-account rate limiter (the trigger behind
             # unusual_activity) is less likely to fire. Skip on round 1
-            # — there's no prior round to space out against.
-            pause_sec = getattr(config, "inter_round_pause_sec", 0)
+            # — there's no prior round to space out against. Day / night
+            # profile may override the per-mode wait via
+            # ``inter_round_pause_sec``; otherwise use the global default.
+            pause_sec = (
+                inter_round_pause_sec if inter_round_pause_sec is not None
+                else getattr(config, "inter_round_pause_sec", 0)
+            )
             if round_count >= 1 and pause_sec > 0:
                 time.sleep(pause_sec)
 

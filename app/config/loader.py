@@ -8,7 +8,7 @@ not at execution time.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
@@ -102,11 +102,17 @@ class ModeProfile(BaseModel):
     * ``captcha_action`` — ``pause`` keeps the task in manual_check
       (waiting for a human); ``skip`` flips it to manual_review and
       moves on. Day pauses, night skips.
+    * ``inter_round_pause_sec`` — extra wait between consecutive rounds
+      inside the same task. Falls back to ``GenerationSettings`` when
+      the per-mode override is absent. Night uses a longer pause to
+      space requests further apart and reduce the per-account rate
+      that triggers ``unusual_activity``.
     """
     stagger_sec: int = Field(60, ge=0)
     max_concurrent_ws: int = Field(5, gt=0)
     auto_resume_cap: int = Field(3, ge=0)
     captcha_action: str = Field("pause")
+    inter_round_pause_sec: Optional[int] = Field(None, ge=0)
 
     @field_validator("captcha_action")
     @classmethod
@@ -121,11 +127,17 @@ class OperationModeSettings(BaseModel):
     the operator-toggled mode in ``app_state``."""
     day: ModeProfile = ModeProfile(
         stagger_sec=60, max_concurrent_ws=5, auto_resume_cap=3,
-        captcha_action="pause",
+        captcha_action="pause", inter_round_pause_sec=5,
     )
+    # Night runs sequential (one WS at a time), with longer gaps both
+    # between WS launches and between rounds inside a single task.
+    # Empirical 56 mp4/h with 2 concurrent + 120s stagger triggered
+    # mass unusual_activity within ~50min; pulling the density down to
+    # ~1/3 of that should let accounts stay under the per-IP rate cap
+    # through the unattended shift.
     night: ModeProfile = ModeProfile(
-        stagger_sec=120, max_concurrent_ws=2, auto_resume_cap=5,
-        captcha_action="skip",
+        stagger_sec=240, max_concurrent_ws=1, auto_resume_cap=5,
+        captcha_action="skip", inter_round_pause_sec=60,
     )
 
 
