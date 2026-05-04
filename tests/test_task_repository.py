@@ -336,15 +336,13 @@ def test_resume_task_clears_retry_keeps_progress(
     assert record.retry_count == 0
     assert record.error_type is None
     assert record.error_message is None
-    # Downloaded progress is preserved so the next claim continues from
-    # where the earlier attempts left off.
+    # Both progress fields are preserved: ``downloaded_count`` so we
+    # don't redo work, and ``generation_round_count`` so the storage
+    # cursor advances past existing ``task_results`` rows on the resumed
+    # session (the worker tracks its budget separately via a
+    # session-scoped counter — see app/worker/loop.py).
     assert record.downloaded_count == 15
-    # ``generation_round_count`` MUST reset to 0 — otherwise a task that
-    # already hit ``max_round_per_task`` would resume into the worker
-    # loop, fail the round-cap check on the very first iteration, and
-    # mark itself failed in 5 seconds without generating anything (the
-    # original "继续任务 没用" bug).
-    assert record.generation_round_count == 0
+    assert record.generation_round_count == 8
 
 
 def test_resume_task_refuses_running(db_path: Path, tmp_path: Path) -> None:

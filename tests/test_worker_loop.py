@@ -167,6 +167,46 @@ def test_unusual_activity_breaks_to_retry_waiting(db_path: Path, app_config) -> 
     assert outcome.last_error_type == "unusual_activity"
 
 
+def test_resumed_task_gets_full_max_round_budget(db_path: Path, app_config) -> None:
+    """Regression: a task resumed with ``initial_round_count`` already
+    at the max_round_per_task cap should still get a fresh window of
+    rounds. Earlier the worker tripped ``round_count >= max_round``
+    on iteration 0, exited in 5s, and re-marked the task failed without
+    generating anything (the customer's "继续任务 没用" symptom).
+
+    Storage cursor still advances forward (round 21, 22 here) so we
+    don't collide with old ``task_results`` rows from the prior session.
+    """
+    cfg = app_config.generation
+    cfg.max_round_per_task = 2
+    _seed_task(db_path, target=8)
+    flow = MockFlowPort([MockRoundPlan.success(2), MockRoundPlan.success(2)])
+    log = logging.getLogger("test")
+    resumed_task = TaskInput(
+        task_id="T1", sku_id="sku", creative_id="cre", segment_id="A",
+        source_asset_path=Path("/x.png"), video_prompt="p",
+        target_count=8,
+        initial_downloaded_count=4,  # carried over from prior session
+        initial_round_count=20,      # prior session exhausted max_round
+    )
+    conn = connect(db_path)
+    try:
+        outcome = execute_task(
+            conn=conn, log=log, flow=flow, workstation_id="WS_A",
+            task=resumed_task, config=cfg,
+            output_root=Path(app_config.output_root),
+            run_date=date(2026, 4, 28),
+        )
+    finally:
+        conn.close()
+    # Both rounds ran in the resumed session — 4 new downloads on top
+    # of the carried-over 4 = 8/8 success.
+    assert outcome.final_status == "success"
+    assert outcome.downloaded_count == 8
+    # Storage cursor advanced past the 20 already used.
+    assert outcome.generation_round_count == 22
+
+
 def test_max_round_with_partial_marks_failed(db_path: Path, app_config) -> None:
     """target=8, max_round=2, 2 rounds × 2 downloads = 4/8 -> failed."""
     cfg = app_config.generation

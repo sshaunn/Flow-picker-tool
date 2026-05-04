@@ -131,7 +131,15 @@ def execute_task(
     )
 
     downloaded_count = task.initial_downloaded_count
+    # ``round_count`` is the storage cursor — it advances strictly
+    # forward across resumes so generated mp4s land in fresh
+    # ``task_results`` rows (UNIQUE on task_id, generation_round,
+    # sequence_no). ``session_round_count`` is the per-call budget
+    # against ``max_round_per_task`` so a resumed task gets a full
+    # ``max_round`` window of fresh attempts instead of immediately
+    # tripping the cap left over from the previous session.
     round_count = task.initial_round_count
+    session_round_count = 0
     last_error_type: str | None = None
     last_error_message: str | None = None
     candidates_persisted: list[dict] = []
@@ -193,9 +201,9 @@ def execute_task(
             )
 
         while downloaded_count < task.target_count:
-            if round_count >= config.max_round_per_task:
+            if session_round_count >= config.max_round_per_task:
                 log.info(
-                    "task task_id=%s reached max_round=%d, exiting loop",
+                    "task task_id=%s reached max_round=%d (session), exiting loop",
                     task.task_id, config.max_round_per_task,
                 )
                 break
@@ -214,6 +222,7 @@ def execute_task(
                 time.sleep(pause_sec)
 
             round_count += 1
+            session_round_count += 1
             log.info(
                 "round start task_id=%s round=%d downloaded=%d/%d",
                 task.task_id, round_count, downloaded_count, task.target_count,
@@ -362,7 +371,7 @@ def execute_task(
                     final_status = "retry_waiting"
             elif workstation_outcome == "page_failure":
                 final_status = "retry_waiting"
-            elif round_count >= config.max_round_per_task:
+            elif session_round_count >= config.max_round_per_task:
                 final_status = "failed"
             else:
                 final_status = "retry_waiting"

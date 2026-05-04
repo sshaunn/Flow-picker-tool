@@ -395,16 +395,17 @@ _RESUMABLE_STATUSES = ("retry_waiting", "failed", "download_failed", "manual_rev
 
 def resume_task(conn: sqlite3.Connection, task_id: str) -> bool:
     """Reset a stuck task's retry counter and flip it back to ``pending``
-    so the scheduler can claim it again. Preserves ``downloaded_count``
-    so the next run continues from where the prior attempts left off
-    — the customer-facing "继续任务" action.
+    so the scheduler can claim it again — the customer-facing 继续任务
+    action.
 
-    Resets ``generation_round_count`` to 0 so the task gets a fresh
-    budget of rounds. Otherwise a task that previously hit
-    ``max_round_per_task`` would immediately exit on the very first
-    round-loop check (the worker sees ``round_count >= max_round`` and
-    breaks before generating anything), making "继续任务" a no-op that
-    just opens the browser for 5 seconds and re-marks the task failed.
+    Preserves ``downloaded_count`` AND ``generation_round_count``:
+    * ``downloaded_count`` so progress isn't lost.
+    * ``generation_round_count`` stays as the high-water mark of round
+      numbers already written into ``task_results``. The worker uses it
+      as a continuation cursor for the storage key (so the next round
+      writes to round N+1 instead of colliding with an existing row).
+      The per-session round budget is decoupled from this number — see
+      ``execute_task`` in ``app/worker/loop.py``.
 
     Also zeroes the auto-resume counter so the task gets a fresh budget
     of automatic retries the next time the scheduler picks it up.
@@ -427,7 +428,6 @@ def resume_task(conn: sqlite3.Connection, task_id: str) -> bool:
                 status = 'pending',
                 retry_count = 0,
                 auto_resumed_count = 0,
-                generation_round_count = 0,
                 error_type = NULL,
                 error_message = NULL,
                 assigned_workstation_id = NULL,
@@ -473,7 +473,6 @@ def auto_resume_exhausted_tasks(
                 status = 'pending',
                 retry_count = 0,
                 auto_resumed_count = auto_resumed_count + 1,
-                generation_round_count = 0,
                 error_type = NULL,
                 error_message = NULL,
                 assigned_workstation_id = NULL,
