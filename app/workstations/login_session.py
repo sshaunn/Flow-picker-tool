@@ -86,6 +86,7 @@ def _now_iso() -> str:
 
 # Type alias — callable that persists the captured URL to the WS DB row.
 CaptureCallback = Callable[[str], None]
+NoAccessCallback = Callable[[], None]
 
 
 class LoginSession:
@@ -98,12 +99,18 @@ class LoginSession:
         profile_path: Path,
         entry_url: str,
         on_capture: CaptureCallback,
+        on_no_access: Optional[NoAccessCallback] = None,
         poll_interval_sec: float = 0.5,
     ) -> None:
         self.workstation_id = workstation_id
         self.profile_path = Path(profile_path)
         self.entry_url = entry_url
         self.on_capture = on_capture
+        # Optional: fired when the landing page tells us the account
+        # can't reach Flow at all. The login route uses it to flip the
+        # workstation row to manual_check so the dashboard / account
+        # tab immediately reflect the dead account.
+        self.on_no_access = on_no_access
         self._poll = max(0.05, poll_interval_sec)
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -320,6 +327,16 @@ class LoginSession:
                         "login %s: 'no Flow access' detected on landing page",
                         self.workstation_id,
                     )
+                    # Tell the route to flip the WS to manual_check so
+                    # the dashboard reflects reality immediately.
+                    if self.on_no_access is not None:
+                        try:
+                            self.on_no_access()
+                        except Exception as exc:  # noqa: BLE001
+                            self._log.warning(
+                                "login %s: on_no_access callback raised: %s",
+                                self.workstation_id, exc,
+                            )
                     self._set(
                         state=LoginState.ERROR,
                         error=(

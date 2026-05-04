@@ -25,7 +25,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from app.config.loader import AppConfig, FlowModeSpec
-from app.db.connection import connect
+from app.db.connection import connect, transaction
 from app.web.dependencies import get_config, get_db_conn
 from app.workstations.login_session import (
     LoginSession,
@@ -108,6 +108,37 @@ def _make_capture_callback(db_path: str, ws_id: str):
     return _on_capture
 
 
+def _make_no_access_callback(db_path: str, ws_id: str):
+    """Build a callback that fires when the login session sees Flow's
+    'no access' landing page. Flips the workstation row to
+    ``manual_check`` with reason ``no_flow_access`` so the dashboard
+    and account tab immediately reflect the dead account.
+
+    Without this the WS would stay at its previous status (healthy /
+    cooldown) while the login session itself sits in ERROR — a
+    misleading split where the operator sees the red error in the
+    login card but green/amber on the WS card.
+    """
+    def _on_no_access() -> None:
+        conn = connect(db_path, check_same_thread=False)
+        try:
+            with transaction(conn):
+                conn.execute(
+                    """
+                    UPDATE workstations
+                       SET status = 'manual_check',
+                           cooldown_reason = 'no_flow_access',
+                           cooldown_until = NULL,
+                           updated_at = datetime('now')
+                     WHERE id = ?
+                    """,
+                    (ws_id,),
+                )
+        finally:
+            conn.close()
+    return _on_no_access
+
+
 @router.post("/api/workstations/{ws_id}/login", response_model=LoginStatusOut,
              status_code=status.HTTP_202_ACCEPTED)
 def start_login(
@@ -130,6 +161,7 @@ def start_login(
         profile_path=Path(ws.browser_profile_path),
         entry_url=cfg.flow.entry_url,
         on_capture=_make_capture_callback(cfg.db_path, ws_id),
+        on_no_access=_make_no_access_callback(cfg.db_path, ws_id),
     )
     registry.put(session)
     session.start()
