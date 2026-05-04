@@ -111,3 +111,25 @@ def test_generate_rejects_blank_customer() -> None:
 def test_generate_rejects_zero_days() -> None:
     with pytest.raises(ValueError):
         generate_license("acme", days=0)
+
+
+def test_find_license_file_searches_app_data_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Smoke-test the discovery path the bundle uses — make sure the
+    paths.app_data_dir() lookup actually resolves (the original bug
+    used a non-existent paths.data_dir()).
+    """
+    from app import paths
+    from app.license import find_license_file
+
+    monkeypatch.setenv(paths._ENV_DATA_DIR, str(tmp_path))
+    # Nothing there → returns None.
+    assert find_license_file() is None
+
+    # Drop a key in the persistent location and confirm we find it.
+    key_path = tmp_path / "license.key"
+    key_path.write_text("{}", encoding="utf-8")
+    found = find_license_file()
+    assert found is not None
+    assert found.resolve() == key_path.resolve()

@@ -175,7 +175,7 @@ def find_license_file() -> Optional[Path]:
             seen.add(r)
             candidates.append(p)
 
-    _add(paths.data_dir() / "license.key")
+    _add(paths.app_data_dir() / "license.key")
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
         _add(Path(meipass) / "license.key")
