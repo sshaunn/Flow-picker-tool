@@ -167,6 +167,14 @@ class LoginSession:
         from patchright.sync_api import sync_playwright
 
         self.profile_path.mkdir(parents=True, exist_ok=True)
+        # Defensive: an earlier patchright session that died (Ctrl+C,
+        # OOM, customer closing the cmd window mid-login) can leave
+        # the profile dir's SingletonLock dangling AND a zombie
+        # Chrome process still attached. The next launch_persistent
+        # _context would then crash with TargetClosedError. Clean it
+        # up eagerly — customers can't fix this from the bundled exe.
+        from app.workstations.profile_check import clean_profile_lock
+        clean_profile_lock(self.profile_path)
         with sync_playwright() as p:
             ctx = p.chromium.launch_persistent_context(
                 user_data_dir=str(self.profile_path),

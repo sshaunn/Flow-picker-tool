@@ -26,6 +26,9 @@ for pkg in (
     "fastapi", "starlette", "uvicorn", "anyio", "h11",
     "websockets", "wsproto", "multipart", "jinja2", "patchright",
     "pydantic", "pydantic_core",
+    # psutil — cross-platform process enumeration. Used to kill orphan
+    # Chrome procs holding a profile's SingletonLock before relaunch.
+    "psutil",
 ):
     pkg_datas, pkg_binaries, pkg_hidden = collect_all(pkg)
     datas += pkg_datas

@@ -169,6 +169,15 @@ class PlaywrightFlowPort(FlowPort):
                 "(run 'flow-harvester login-flow --workstation <id>' first)"
             )
 
+        # Defensive cleanup of orphan Chrome / SingletonLock left by a
+        # previous session that died mid-task (server SIGKILL, Chrome
+        # crash, customer closing the cmd window). Without this the
+        # new launch_persistent_context would either attach to the
+        # dead session or fail with TargetClosedError. Customer-side
+        # bundled exe has no shell to fix this manually.
+        from app.workstations.profile_check import clean_profile_lock
+        clean_profile_lock(self.profile_path)
+
         self._pw = sync_playwright().start()
         try:
             # Patchright recommends minimal customisation: just channel="chrome"
