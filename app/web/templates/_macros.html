@@ -10,6 +10,8 @@
     <span title="cooldown" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">冷却中</span>
   {%- elif status == 'manual_check' -%}
     <span title="manual_check" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">需人工处理</span>
+  {%- elif status == 'nurturing' -%}
+    <span title="nurturing" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">养号中</span>
   {%- elif status == 'disabled' -%}
     <span title="disabled" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-200 text-slate-700">已停用</span>
   {%- else -%}

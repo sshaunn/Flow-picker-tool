@@ -72,7 +72,8 @@ CREATE TABLE IF NOT EXISTS workstations (
     browser_profile_path        TEXT NOT NULL,
     daily_task_limit            INTEGER NOT NULL CHECK (daily_task_limit > 0),
     status                      TEXT NOT NULL DEFAULT 'healthy' CHECK (
-        status IN ('healthy', 'busy', 'cooldown', 'manual_check', 'disabled')
+        status IN ('healthy', 'busy', 'cooldown', 'manual_check',
+                   'nurturing', 'disabled')
     ),
     stats_date                  TEXT,
     today_success_count         INTEGER NOT NULL DEFAULT 0,
@@ -174,8 +175,54 @@ def init_schema(db_path: Path | str) -> None:
     try:
         conn.executescript(SCHEMA_SQL)
         _migrate(conn)
+        _widen_workstations_status_check(conn)
     finally:
         conn.close()
+
+
+def _widen_workstations_status_check(conn) -> None:
+    """Idempotent widening of the workstations.status CHECK constraint to
+    include the ``nurturing`` state introduced in 2026-05.
+
+    SQLite has no ``ALTER TABLE ... DROP CONSTRAINT``; the documented
+    workaround is rewriting ``sqlite_master.sql`` under
+    ``PRAGMA writable_schema = ON``. Safe here because (a) we don't touch
+    column definitions, only the literal CHECK string, and (b) every
+    existing row already satisfies the wider constraint.
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='workstations'"
+    ).fetchone()
+    if row is None:
+        return
+    sql = row[0] or ""
+    if "'nurturing'" in sql:
+        return
+    old_check = (
+        "status IN ('healthy', 'busy', 'cooldown', 'manual_check', 'disabled')"
+    )
+    new_check = (
+        "status IN ('healthy', 'busy', 'cooldown', 'manual_check', "
+        "'nurturing', 'disabled')"
+    )
+    if old_check not in sql:
+        return  # constraint shape unexpected; bail rather than corrupt schema
+    new_sql = sql.replace(old_check, new_check)
+    conn.execute("PRAGMA writable_schema = ON")
+    try:
+        conn.execute(
+            "UPDATE sqlite_master SET sql = ? "
+            "WHERE type='table' AND name='workstations'",
+            (new_sql,),
+        )
+        conn.commit()
+    finally:
+        conn.execute("PRAGMA writable_schema = OFF")
+    integrity = conn.execute("PRAGMA integrity_check").fetchone()
+    if integrity[0] != "ok":
+        raise RuntimeError(
+            f"integrity_check failed after widening status CHECK: {integrity[0]}"
+        )
 
 
 _MIGRATIONS: list[tuple[str, str]] = [

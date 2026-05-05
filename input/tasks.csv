@@ -1,4 +1,8 @@
-sku_id,creative_id,segment_id,sequence_index,source_asset_path,asset_kind,video_prompt,target_count,mode_model,mode_output_count,mode_duration_sec,mode_aspect
-kerusi,kerusi_creative_001,A,1,p1i1.jpg|p1i2.jpg,reference,"口播对白：""Campak dari tempat tinggi pun masih teguh dan stabil! Masih risau kerusi lipat tak kuat, tak tahan lama? Kerusi kita ni semuanya guna rangka besi yang lebih tebal dan besar!"" 说话时嘴部清晰可见，口型与口播对白同步对齐。在强调""Campak/Dilempar dari tempat tinggi pun masih teguh dan stabil""和""Masih risau/bimbang kerusi lipat tak kuat/kukuh, tak tahan lama""时，动作密度和情绪极高，没有任何停顿。",4,,,,
-kerusi,kerusi_creative_001,B,2,p2i1.png,reference,"口播文案：Satu saat je dah boleh lipat simpan. paip dia pun tebal dan besar.Boleh tampung berat sampai 150 kilo, memang takde hal.在讲到""Boleh tampung berat sampai 150 kilo, memang takde hal.""的时候达人跳到椅子上快速暴力踩踏椅子。椅子的状态表现得稳如泰山",4,,,,
-kerusi,kerusi_creative_001,C,3,p3i1.png,reference,"口播文案：Sekarang ni kerusi ni ada tawaran baucar besar-besaran, memang sangat berbaloi! Jangan lepaskan peluang ni, link ada kat sudut kiri bawah, cepat-cepat tekan dan buat pesanan sekarang! 达人在讲到""ink ada kat sudut kiri bawah, cepat-cepat tekan dan buat pesanan sekarang!""的时候做出强势的催单动作。",4,,,,
+sku_id,creative_id,segment_id,sequence_index,asset_kind,source_asset_path,source_start_path,source_end_path,video_prompt,target_count,mode_model,mode_output_count,mode_duration_sec,mode_aspect
+kerusi,kerusi_test,REF_OK,1,reference,p1i1.jpg|p1i2.jpg,,,"参考图模式：两张参考图，多张用 | 分隔。预览检查应通过。",2,Veo 3.1 - Fast,1,8,9:16
+kerusi,kerusi_test,FRAMES_OK,2,frames_pair,,p2i1.png,p3i1.png,"起止帧对：source_start_path = p2i1.png 作为视频开头，source_end_path = p3i1.png 作为视频结尾。预览检查应通过，subtab 自动 frames。",2,Veo 3.1 - Fast,1,8,9:16
+kerusi,kerusi_test,FIRST_OK,3,first_frame,,p2i1.png,,"仅首帧：只填 source_start_path，end 留空。预览检查应通过，subtab 自动 frames。",2,Veo 3.1 - Fast,1,8,9:16
+kerusi,kerusi_test,ERR_FRAMES_IN_REF,4,first_frame,p2i1.png,,,"故意错填：asset_kind=first_frame 却把图片写到 source_asset_path。预览应红色标 ✗，提示改用 source_start_path。",2,Veo 3.1 - Fast,1,8,9:16
+kerusi,kerusi_test,ERR_PAIR_MISSING_END,5,frames_pair,,p2i1.png,,"故意错填：frames_pair 漏填 source_end_path。预览应红色标 ✗，提示必须填 source_end_path。",2,Veo 3.1 - Fast,1,8,9:16
+kerusi,kerusi_test,ERR_REF_WITH_FRAMES,6,reference,p1i1.jpg,p2i1.png,,"故意错填：asset_kind=reference 却填了 source_start_path。预览应红色标 ✗，提示这两列只用于 frames 模式。",2,Veo 3.1 - Fast,1,8,9:16
+kerusi,kerusi_test,ERR_MISSING_IMAGE,7,reference,not_uploaded.jpg,,,"故意错填：CSV 引用了一张没上传的图片。预览应红色标 ✗，提示图片不在上传文件中。",2,Veo 3.1 - Fast,1,8,9:16

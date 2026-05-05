@@ -42,6 +42,7 @@ from app.workstations.repository import (
     create_workstation,
     get_workstation,
     get_workstation_health,
+    get_workstation_health_history,
     list_workstations,
     update_workstation_config,
 )
@@ -240,12 +241,14 @@ def workstation_detail(
         for r in rows
     ]
     health = get_workstation_health(conn, ws_id)
+    history = get_workstation_health_history(conn, ws_id)
     return templates.TemplateResponse(
         request, "workstation_detail.html",
         {
             "active_page": "workstations",
             "ws": ws,
             "health": health,
+            "history": history,
             "recent_tasks": recent_tasks,
         },
     )

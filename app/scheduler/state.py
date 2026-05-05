@@ -152,12 +152,19 @@ def _apply_workstation_outcome(
         ban_probe_count = row["ban_probe_count"] or 0
     except (KeyError, IndexError):
         ban_probe_count = 0
-    # A successful generation proves the account is currently usable;
-    # reset the strike counter so the next unusual_activity hit starts
-    # from tier 0 again. (Without this, a single isolated strike would
-    # haunt the WS forever.)
-    if is_success:
-        ban_probe_count = 0
+    # Strike counter is intentionally NOT reset on success. In the
+    # patchright-vs-Google era, a single ``unusual_activity`` hit is
+    # almost never noise — it's structural. Accounts often hit a
+    # 30%-failure rhythm (success / fail / success / fail) where any
+    # success-clears-strike rule would prevent the counter ever
+    # reaching ``max_strikes``, so the WS would oscillate between
+    # short cooldowns indefinitely without ever surfacing for
+    # operator review. Strike now only clears via:
+    #   (a) entering ``manual_check`` (we set it to 0 below), where
+    #       ``probe_recover_banned_workstations`` takes over with its
+    #       own counter
+    #   (b) the operator explicitly pressing "恢复使用" (hard revive)
+    #   (c) entering ``nurturing`` (handled by repository.start_nurturing)
 
     if workstation_outcome == "manual_check":
         cooldown_reason = last_error_type or "manual_check"
@@ -194,6 +201,17 @@ def _apply_workstation_outcome(
                 cooldown_until = _iso(now + timedelta(hours=backoff[0]))
             else:
                 cooldown_until = None
+            # Audit breadcrumb so the WS detail page can show "近 24h
+            # 进入 manual_check 次数". The strike-cleared-to-0 below is
+            # what the operator-facing dashboard actually reflects.
+            conn.execute(
+                """
+                INSERT INTO error_logs
+                    (workstation_id, error_type, error_message, created_at)
+                VALUES (?, 'transition_manual_check', ?, datetime('now'))
+                """,
+                (workstation_id, f"prev_ban_probe_count={ban_probe_count}"),
+            )
             # Reset strike counter on entering manual_check; the probe
             # recovery has its own counter semantics.
             ban_probe_count = 0

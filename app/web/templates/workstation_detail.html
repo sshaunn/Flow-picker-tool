@@ -8,7 +8,34 @@
     <a href="/workstations" class="text-xs text-slate-500 hover:underline">← 账号列表</a>
     <h1 class="text-xl font-semibold mt-1">{{ ws.id }} <span class="ml-2">{{ ws_status_badge(ws.status) }}</span></h1>
   </div>
-  <div class="flex gap-2">
+  <div class="flex gap-2 flex-wrap justify-end">
+    {# Transitions — operator-driven only. Strike system can escalate up
+       to manual_check on its own, but moving to/from nurturing /
+       disabled / healthy is always a human decision. #}
+    {% if ws.status in ('manual_check', 'nurturing') %}
+      <button hx-post="/api/workstations/{{ ws.id }}/transition/healthy"
+              hx-confirm="确认账号已恢复正常？将清空 strike 并放回调度池。"
+              hx-on::after-request="if (event.detail.successful) window.location.reload()"
+              class="px-3 py-1.5 text-sm bg-green-600 text-white rounded hover:bg-green-700">
+        恢复使用
+      </button>
+    {% endif %}
+    {% if ws.status in ('healthy', 'manual_check', 'cooldown') %}
+      <button hx-post="/api/workstations/{{ ws.id }}/transition/nurturing"
+              hx-confirm="进入养号状态？调度器不会取该账号；请用浏览器手动登录、生成内容养号。"
+              hx-on::after-request="if (event.detail.successful) window.location.reload()"
+              class="px-3 py-1.5 text-sm bg-purple-600 text-white rounded hover:bg-purple-700">
+        {% if ws.status == 'manual_check' %}开始养号{% else %}预防性养号{% endif %}
+      </button>
+    {% endif %}
+    {% if ws.status != 'busy' and ws.status != 'disabled' %}
+      <button hx-post="/api/workstations/{{ ws.id }}/transition/disabled"
+              hx-confirm="确定弃用 {{ ws.id }}？账号将不再被调度。"
+              hx-on::after-request="if (event.detail.successful) window.location.reload()"
+              class="px-3 py-1.5 text-sm bg-slate-200 text-slate-700 rounded hover:bg-slate-300">
+        弃用账号
+      </button>
+    {% endif %}
     <a href="/workstations/{{ ws.id }}/edit"
        class="px-3 py-1.5 text-sm bg-white border border-slate-300 text-slate-700 rounded hover:bg-slate-50">
       编辑
@@ -21,6 +48,22 @@
     </button>
   </div>
 </div>
+
+{% if ws.status == 'nurturing' %}
+<div class="rounded-lg border border-purple-200 bg-purple-50 p-4 mb-6 text-sm text-purple-900">
+  <strong>养号状态</strong>：调度器不会自动取该账号。
+  请用浏览器手动登录该账号的 profile（路径见下方"配置"），
+  正常浏览 / 生成内容 / 与 Google 服务交互来积累真实使用信号。
+  操作员判断信誉恢复后点击「恢复使用」放回调度池。
+</div>
+{% elif ws.status == 'manual_check' %}
+<div class="rounded-lg border border-red-200 bg-red-50 p-4 mb-6 text-sm text-red-900">
+  <strong>需人工处理</strong>：strike 累计已达上限或检测到登录失效 / 验证码 / 账号无 Flow 访问权。
+  请先用浏览器手动验证账号——如果手动可用但 patchright 跑不动，请按「开始养号」；
+  如果账号真的无法登录或 Flow 无访问，请按「弃用账号」并新增另一账号；
+  如确认账号正常请按「恢复使用」。
+</div>
+{% endif %}
 
 {% if health %}
 <section class="bg-white rounded-lg border border-slate-200 p-5 mb-6">
@@ -75,6 +118,33 @@
       <dd class="mt-0.5 text-xs text-slate-700">{{ health.last_failure_at or '—' }}</dd>
     </div>
   </dl>
+  {% if history %}
+  <div class="mt-4 pt-4 border-t border-slate-100">
+    <h3 class="text-xs text-slate-500 mb-2">长期健康（不会被 revive 清零）</h3>
+    <dl class="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-3 text-sm">
+      <div>
+        <dt class="text-xs text-slate-500">近 7 天 unusual_activity</dt>
+        <dd class="mt-0.5 tabular-nums {% if history.unusual_activity_7d > 5 %}text-red-700 font-medium{% endif %}">
+          {{ history.unusual_activity_7d }}
+        </dd>
+      </div>
+      <div>
+        <dt class="text-xs text-slate-500">近 24h 进入需人工处理</dt>
+        <dd class="mt-0.5 tabular-nums {% if history.transitions_manual_check_24h > 0 %}text-red-700 font-medium{% endif %}">
+          {{ history.transitions_manual_check_24h }}
+        </dd>
+      </div>
+      <div>
+        <dt class="text-xs text-slate-500">近 24h 自动 revive</dt>
+        <dd class="mt-0.5 tabular-nums">{{ history.revive_soft_24h }}</dd>
+      </div>
+      <div>
+        <dt class="text-xs text-slate-500">近 24h 手动 revive</dt>
+        <dd class="mt-0.5 tabular-nums">{{ history.revive_hard_24h }}</dd>
+      </div>
+    </dl>
+  </div>
+  {% endif %}
 </section>
 {% endif %}
 

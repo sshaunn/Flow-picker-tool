@@ -296,11 +296,15 @@ def test_unusual_activity_strikes_escalate_to_manual_check(
         conn.close()
 
 
-def test_success_resets_unusual_activity_strike_counter(
+def test_success_preserves_unusual_activity_strike_counter(
     db_path: Path, workstations,
 ) -> None:
-    """A successful generation clears the strike counter so a single
-    isolated strike doesn't haunt the WS forever."""
+    """In the patchright-vs-Google era a single ``unusual_activity`` hit
+    is structural, not noise. If a success silently cleared the strike
+    counter, an account on a 30%-failure rhythm would never accumulate
+    enough strikes to reach ``manual_check`` — it'd oscillate in short
+    cooldowns forever and the operator would never see the underlying
+    health problem. So success now leaves ``ban_probe_count`` alone."""
     sync_workstations(db_path, workstations)
     conn = connect(db_path)
     try:
@@ -327,7 +331,7 @@ def test_success_resets_unusual_activity_strike_counter(
             "SELECT status, ban_probe_count FROM workstations WHERE id='WS_A'"
         ).fetchone()
         assert row["status"] == "healthy"
-        assert row["ban_probe_count"] == 0
+        assert row["ban_probe_count"] == 2
 
 
     finally:

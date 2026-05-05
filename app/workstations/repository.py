@@ -39,6 +39,46 @@ _log = logging.getLogger("flow_harvester.workstations")
 
 
 @dataclass
+class WorkstationHealthHistory:
+    """Aggregates from ``error_logs`` so the detail page can show
+    "this account has been hit N times this week" — strike counter
+    alone gets reset on hard revive / nurturing transition, so the
+    raw numbers here are what actually expose long-running problem
+    accounts.
+    """
+    unusual_activity_7d: int
+    transitions_manual_check_24h: int
+    revive_soft_24h: int
+    revive_hard_24h: int
+
+
+def get_workstation_health_history(
+    conn: sqlite3.Connection, ws_id: str,
+) -> WorkstationHealthHistory:
+    def _count(error_types: tuple[str, ...], hours: int) -> int:
+        placeholders = ", ".join("?" * len(error_types))
+        params = [ws_id, *error_types, f"-{hours} hours"]
+        row = conn.execute(
+            f"""
+            SELECT COUNT(*) AS n
+              FROM error_logs
+             WHERE workstation_id = ?
+               AND error_type IN ({placeholders})
+               AND created_at >= datetime('now', ?)
+            """,
+            params,
+        ).fetchone()
+        return int(row["n"] or 0)
+
+    return WorkstationHealthHistory(
+        unusual_activity_7d=_count(("unusual_activity",), 24 * 7),
+        transitions_manual_check_24h=_count(("transition_manual_check",), 24),
+        revive_soft_24h=_count(("revive_soft",), 24),
+        revive_hard_24h=_count(("revive_hard",), 24),
+    )
+
+
+@dataclass
 class WorkstationHealth:
     """Scheduler-owned runtime fields for a workstation. Read-only from the
     Web UI's perspective — the customer sees them on the detail page so
@@ -53,17 +93,78 @@ class WorkstationHealth:
     last_failure_at: Optional[str]
 
 
-def revive_workstation(conn: sqlite3.Connection, ws_id: str) -> bool:
-    """Reset the scheduler-owned health fields back to a clean state.
+def _read_ban_probe_count(conn: sqlite3.Connection, ws_id: str) -> int:
+    row = conn.execute(
+        "SELECT ban_probe_count FROM workstations WHERE id = ?",
+        (ws_id,),
+    ).fetchone()
+    return (row["ban_probe_count"] or 0) if row is not None else 0
 
-    Used after a successful re-login: the customer just proved the
-    account is reachable from a fresh session, so any prior strikes /
-    cooldown / consecutive-failure stickiness should be cleared. Status
-    flips to ``healthy`` so the next ``run_multi_workstation`` pass can
-    claim work for it.
 
-    Returns True if a row was touched.
+def _write_health_audit(
+    conn: sqlite3.Connection,
+    ws_id: str,
+    kind: str,
+    prev_ban_probe_count: int,
+) -> None:
+    """Persist a one-line breadcrumb to ``error_logs`` whenever a health
+    transition fires. Lets the WS detail page show "近 24h revive 次数"
+    so the operator can spot accounts being reset over and over again.
+
+    ``kind`` examples: ``revive_soft``, ``revive_hard``,
+    ``transition_nurturing``, ``transition_disabled``.
     """
+    conn.execute(
+        """
+        INSERT INTO error_logs
+            (workstation_id, error_type, error_message, created_at)
+        VALUES (?, ?, ?, datetime('now'))
+        """,
+        (ws_id, kind, f"prev_ban_probe_count={prev_ban_probe_count}"),
+    )
+
+
+def soft_revive_workstation(conn: sqlite3.Connection, ws_id: str) -> bool:
+    """Login-callback path: a successful re-login proves the account is
+    *reachable*, but says nothing about whether patchright will keep
+    tripping Google's anti-bot. So we only clear the *transient* sticky
+    state — cooldown timers, consecutive-failure count — and flip
+    ``cooldown`` / ``busy`` rows back to ``healthy``.
+
+    Critically: ``ban_probe_count`` is **not** touched, and rows in
+    ``manual_check`` / ``nurturing`` / ``disabled`` keep their status.
+    Those need an operator decision; a re-login alone shouldn't override
+    that. The hard path below is the operator-explicit reset.
+    """
+    prev = _read_ban_probe_count(conn, ws_id)
+    with transaction(conn):
+        cursor = conn.execute(
+            """
+            UPDATE workstations SET
+                status = CASE
+                    WHEN status IN ('cooldown', 'busy') THEN 'healthy'
+                    ELSE status
+                END,
+                cooldown_until = NULL,
+                cooldown_reason = NULL,
+                consecutive_failure_count = 0,
+                updated_at = datetime('now')
+             WHERE id = ?
+            """,
+            (ws_id,),
+        )
+        if cursor.rowcount > 0:
+            _write_health_audit(conn, ws_id, "revive_soft", prev)
+    return cursor.rowcount > 0
+
+
+def hard_revive_workstation(conn: sqlite3.Connection, ws_id: str) -> bool:
+    """Operator-explicit "恢复使用" path: clears strikes + cooldown +
+    flips status to ``healthy`` from any non-busy state. This is the
+    only path that resets ``ban_probe_count``; success and re-login
+    do not.
+    """
+    prev = _read_ban_probe_count(conn, ws_id)
     with transaction(conn):
         cursor = conn.execute(
             """
@@ -78,6 +179,69 @@ def revive_workstation(conn: sqlite3.Connection, ws_id: str) -> bool:
             """,
             (ws_id,),
         )
+        if cursor.rowcount > 0:
+            _write_health_audit(conn, ws_id, "revive_hard", prev)
+    return cursor.rowcount > 0
+
+
+# Backwards-compatible alias — older callers / tests imported this name
+# expecting the full reset semantics. Same behaviour as ``hard_revive``.
+revive_workstation = hard_revive_workstation
+
+
+def start_nurturing(conn: sqlite3.Connection, ws_id: str) -> bool:
+    """Move a WS into ``nurturing``: the scheduler will not claim it
+    (claim.py only takes ``healthy``), but the operator can keep using
+    the same Chrome profile manually to rebuild the account's signal
+    history. Strike counter is reset because the whole point of
+    nurturing is to relieve patchright pressure.
+
+    Allowed source states: ``healthy``, ``cooldown``, ``manual_check``.
+    Refused for ``busy`` (job in flight) and ``disabled`` (use hard
+    revive first).
+    """
+    prev = _read_ban_probe_count(conn, ws_id)
+    with transaction(conn):
+        cursor = conn.execute(
+            """
+            UPDATE workstations SET
+                status = 'nurturing',
+                cooldown_until = NULL,
+                cooldown_reason = NULL,
+                consecutive_failure_count = 0,
+                ban_probe_count = 0,
+                updated_at = datetime('now')
+             WHERE id = ?
+               AND status IN ('healthy', 'cooldown', 'manual_check')
+            """,
+            (ws_id,),
+        )
+        if cursor.rowcount > 0:
+            _write_health_audit(conn, ws_id, "transition_nurturing", prev)
+    return cursor.rowcount > 0
+
+
+def disable_workstation(conn: sqlite3.Connection, ws_id: str) -> bool:
+    """Move a WS into ``disabled``: account considered dead / abandoned.
+    Refused for ``busy`` to avoid yanking an in-flight job out from
+    under the worker.
+    """
+    prev = _read_ban_probe_count(conn, ws_id)
+    with transaction(conn):
+        cursor = conn.execute(
+            """
+            UPDATE workstations SET
+                status = 'disabled',
+                cooldown_until = NULL,
+                cooldown_reason = NULL,
+                updated_at = datetime('now')
+             WHERE id = ?
+               AND status != 'busy'
+            """,
+            (ws_id,),
+        )
+        if cursor.rowcount > 0:
+            _write_health_audit(conn, ws_id, "transition_disabled", prev)
     return cursor.rowcount > 0
 
 

@@ -42,9 +42,11 @@ from typing import Callable, Optional
 
 # Flow project URLs always carry a UUID after ``/project/``. We match the
 # canonical UUIDv4 shape (8-4-4-4-12 hex) loosely so any future format
-# tweak by Google still trips the capture.
+# tweak by Google still trips the capture. ``projects?`` covers both the
+# canonical ``/project/<uuid>`` and the occasional ``/projects/<uuid>``
+# plural variant. Trailing query / fragment is allowed and ignored.
 PROJECT_URL_RE = re.compile(
-    r"https://labs\.google/fx/tools/flow/project/([0-9a-fA-F-]{8,})"
+    r"https://labs\.google/fx/tools/flow/projects?/([0-9a-fA-F-]{8,})"
 )
 
 
@@ -264,6 +266,56 @@ class LoginSession:
                     return True
         return False
 
+    def _wait_for_project_ready(self, pages, captured_url: str) -> None:
+        """Best-effort barrier between "URL matched" and "browser closes".
+
+        Two checks back-to-back:
+          1. Re-evaluate ``location.href`` on the matching page after
+             ~300ms; if the URL is still the same captured value the SPA
+             route has stabilized (not just a fly-by intermediate).
+          2. Wait up to 6s for the prompt input box to be present —
+             that's the signal the project workspace fully rendered,
+             which happens AFTER Google has committed the project
+             server-side.
+
+        Both checks are best-effort. If they time out we still proceed
+        to capture; the worst case is the original race, not a
+        regression.
+        """
+        target_page = None
+        for p in pages:
+            try:
+                if PROJECT_URL_RE.match(p.url or ""):
+                    target_page = p
+                    break
+            except Exception:  # noqa: BLE001
+                continue
+        if target_page is None:
+            return
+        time.sleep(0.3)
+        try:
+            stable = target_page.evaluate("() => location.href")
+            if isinstance(stable, str) and not PROJECT_URL_RE.match(stable):
+                # URL drifted off project route during the settle window;
+                # fall through anyway — caller already decided to capture.
+                self._log.info(
+                    "login %s URL drifted from %s to %s after settle",
+                    self.workstation_id, captured_url, stable,
+                )
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            target_page.wait_for_selector(
+                '[contenteditable="true"], textarea[placeholder*="prompt" i], '
+                'textarea[aria-label*="prompt" i]',
+                timeout=6000,
+            )
+        except Exception:  # noqa: BLE001
+            self._log.info(
+                "login %s prompt selector not visible within 6s — "
+                "proceeding with capture anyway", self.workstation_id,
+            )
+
     def _watch_for_project_url(self, ctx, event_urls: list[str]) -> None:
         """Scan every open page until one URL matches the project pattern."""
         while not self._stop.is_set():
@@ -294,8 +346,19 @@ class LoginSession:
                 match = PROJECT_URL_RE.match(url) if url else None
                 if match:
                     captured = match.group(0)
+                    self._log.info("login %s candidate URLs: %s",
+                                   self.workstation_id, list(set(collected)))
                     self._log.info("login %s captured project url: %s",
                                    self.workstation_id, captured)
+                    # New-project race: when the operator clicks "Create",
+                    # Google's SPA pushes the new ``/project/<uuid>`` URL
+                    # *before* the backing-store HTTP request commits the
+                    # project to the account. If we close the browser at
+                    # the URL-push moment the project never finishes
+                    # creating server-side and the operator has to do it
+                    # all over again. Wait for a stable URL + a
+                    # workspace-loaded signal before signaling capture.
+                    self._wait_for_project_ready(pages, captured)
                     try:
                         self.on_capture(captured)
                     except Exception as exc:  # noqa: BLE001

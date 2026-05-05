@@ -20,8 +20,11 @@ from app.workstations.repository import (
     WorkstationNotFoundError,
     create_workstation,
     delete_workstation,
+    disable_workstation,
     get_workstation,
+    hard_revive_workstation,
     list_workstations,
+    start_nurturing,
     update_workstation_config,
 )
 
@@ -168,6 +171,53 @@ def update_route(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    refreshed = get_workstation(conn, ws_id)
+    assert refreshed is not None
+    return _to_out(refreshed)
+
+
+_ALLOWED_TRANSITIONS = {"healthy", "nurturing", "disabled"}
+
+
+@router.post("/{ws_id}/transition/{target}", response_model=WorkstationOut)
+def transition_route(
+    ws_id: str,
+    target: str,
+    conn: sqlite3.Connection = Depends(get_db_conn),
+) -> WorkstationOut:
+    """Operator-driven status transition. The strike system can ONLY
+    auto-escalate as far as ``manual_check``; promoting to ``nurturing``
+    or ``disabled`` (and "恢复使用" back to ``healthy``) is always a
+    human decision so the operator can manually verify the account
+    first.
+
+    Using a path-param target keeps the call body-free so the HTMX
+    button doesn't need the json-enc extension.
+    """
+    if target not in _ALLOWED_TRANSITIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"invalid target status: {target}",
+        )
+    if get_workstation(conn, ws_id) is None:
+        raise HTTPException(status_code=404, detail=f"workstation not found: {ws_id}")
+
+    if target == "healthy":
+        ok = hard_revive_workstation(conn, ws_id)
+    elif target == "nurturing":
+        ok = start_nurturing(conn, ws_id)
+    else:  # disabled
+        ok = disable_workstation(conn, ws_id)
+
+    if not ok:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"transition to {target} refused — workstation may be busy"
+                if target == "disabled"
+                else f"transition to {target} refused for current status"
+            ),
+        )
     refreshed = get_workstation(conn, ws_id)
     assert refreshed is not None
     return _to_out(refreshed)

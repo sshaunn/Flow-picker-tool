@@ -35,7 +35,7 @@ from app.workstations.login_session import (
 )
 from app.workstations.repository import (
     get_workstation,
-    revive_workstation,
+    soft_revive_workstation,
     update_workstation_config,
 )
 
@@ -97,12 +97,16 @@ def _make_capture_callback(db_path: str, ws_id: str):
             if ws.flow_mode is None:
                 fields["flow_mode"] = _DEFAULT_FLOW_MODE
             update_workstation_config(conn, ws_id, **fields)
-            # A successful re-login proves the account is reachable from
-            # a fresh session; clear any sticky scheduler state (strikes,
-            # cooldown, manual_check) so the daemon can pick it up again.
-            # This is the customer's only path back from manual_check
-            # without CLI access.
-            revive_workstation(conn, ws_id)
+            # A successful re-login proves the account is reachable, but
+            # NOT that patchright is unblocked — Google's anti-bot is at
+            # the automation-fingerprint layer, not the session layer.
+            # So we only soft-revive: clear cooldown timers and flip
+            # cooldown/busy → healthy. Strike counter is preserved so a
+            # WS that has been repeatedly tripping anti-bot keeps its
+            # accumulated pressure visible. ``manual_check`` and
+            # ``nurturing`` rows stay put — those need an operator
+            # decision via the explicit transition buttons.
+            soft_revive_workstation(conn, ws_id)
         finally:
             conn.close()
     return _on_capture

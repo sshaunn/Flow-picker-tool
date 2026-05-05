@@ -229,7 +229,8 @@ class WorkstationConfig(BaseModel):
     @field_validator("status")
     @classmethod
     def _check_status(cls, v: str) -> str:
-        allowed = {"healthy", "busy", "cooldown", "manual_check", "disabled"}
+        allowed = {"healthy", "busy", "cooldown", "manual_check",
+                   "nurturing", "disabled"}
         if v not in allowed:
             raise ValueError(f"workstation status must be one of {sorted(allowed)}, got {v!r}")
         return v
