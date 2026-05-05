@@ -1,0 +1,92 @@
+name: Build Windows Bundle + Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to publish under (e.g. v0.9.0). Leave blank for a draft.'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install build deps
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[build]"
+
+      - name: Run PyInstaller
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm flow_harvester.spec
+
+      - name: Add bundle launcher (Run Flow Harvester.cmd)
+        shell: pwsh
+        run: |
+          @'
+          @echo off
+          cd /d "%~dp0"
+          start "" "FlowHarvester.exe"
+          '@ | Out-File -Encoding ascii "dist\FlowHarvester\Run Flow Harvester.cmd"
+
+      - name: Add customer-facing manuals
+        shell: pwsh
+        run: |
+          if (Test-Path "docs\安装说明.txt") {
+            Copy-Item -Force "docs\安装说明.txt" "dist\FlowHarvester\安装说明.txt"
+          }
+          if (Test-Path "docs\使用手册.txt") {
+            Copy-Item -Force "docs\使用手册.txt" "dist\FlowHarvester\使用手册.txt"
+          }
+
+      - name: Pack bundle zip
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          if ([string]::IsNullOrEmpty($tag) -or $tag -eq "main") {
+            $tag = "${{ github.event.inputs.tag }}"
+          }
+          if ([string]::IsNullOrEmpty($tag)) { $tag = "dev" }
+          $name = "FlowHarvester-bundle-$tag.zip"
+          Compress-Archive -Path "dist\FlowHarvester\*" -DestinationPath $name -Force
+          echo "BUNDLE_NAME=$name" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Upload artifact (always — picks up workflow_dispatch runs too)
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlowHarvester-bundle
+          path: ${{ env.BUNDLE_NAME }}
+          retention-days: 14
+
+      - name: Create GitHub release (tag pushes only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.BUNDLE_NAME }}
+          generate_release_notes: true
+          body: |
+            自动构建产物：`${{ env.BUNDLE_NAME }}`
+
+            **不含 license.key**。客户交付前需用 dev 机器签发并放进 zip 包根目录：
+            ```
+            .venv/bin/flow-harvester gen-license --customer X --days 30 --out license.key
+            ```
+            然后把 `license.key` 拖进解压后的 `FlowHarvester\` 目录。
