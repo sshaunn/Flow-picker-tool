@@ -1743,6 +1743,14 @@ class PlaywrightFlowPort(FlowPort):
             from urllib.parse import urljoin
             full_url = urljoin(self._page.url, src)
 
+        # Forensic: log the full URL we're about to GET. Customer-side
+        # locale-prefixed page URLs (e.g. ``/fx/zh/...``) interact with
+        # urljoin in subtle ways — when an upcoming download_failed
+        # bundle comes in, this line is the only way to tell whether
+        # Flow's media src was absolute / relative / contained ``/zh/``.
+        # Cheap log line; only fires on actual download attempts.
+        _LOG.info("download_candidate GET %s (src=%s, page=%s)",
+                  full_url, src, self._page.url)
         try:
             response = self._page.request.get(
                 full_url, timeout=self._cfg.timeouts.download * 1000
