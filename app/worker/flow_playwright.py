@@ -1738,7 +1738,40 @@ class PlaywrightFlowPort(FlowPort):
             "downloaded %d bytes content-type=%s -> %s",
             len(body), ct, target_path,
         )
-        target_path.write_bytes(body)
+        # On Win11 the write itself can fail (Defender real-time scan
+        # holding the file, OneDrive sync claiming Documents\, locked
+        # parent dir, antivirus quarantining mp4 mid-write) — those
+        # raise OSError, which the previous code let escape past
+        # ``except FlowPortError`` in ``loop._download_round`` and
+        # bubble all the way to ``runner.multi``'s broad handler with
+        # no error_logs entry, no screenshot, no task transition.
+        # Convert to FlowPortError so the standard download_failed
+        # path runs.
+        try:
+            target_path.write_bytes(body)
+        except (OSError, IOError) as exc:
+            raise FlowPortError(
+                f"write {len(body)} bytes to {target_path} failed: "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
+        # Post-write verification: OneDrive's "files on demand" or
+        # Windows Defender quarantine can silently delete / replace
+        # the mp4 immediately after write returns. Without this check
+        # the worker would record a task_results row pointing at a
+        # file the customer can't actually find on disk.
+        try:
+            actual_size = target_path.stat().st_size
+        except OSError as exc:
+            raise FlowPortError(
+                f"post-write verify failed for {target_path}: file "
+                f"missing immediately after write ({exc})"
+            ) from exc
+        if actual_size != len(body):
+            raise FlowPortError(
+                f"post-write verify size mismatch for {target_path}: "
+                f"wrote {len(body)} bytes but on-disk size is {actual_size} "
+                f"(antivirus / OneDrive interference?)"
+            )
 
     @staticmethod
     def _save_data_uri(src: str, target_path: Path) -> None:

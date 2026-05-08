@@ -390,7 +390,81 @@ Q：批量导入说图片找不到？
 
     %LOCALAPPDATA%\FlowHarvester\logs\
 
-把整个 logs 文件夹打包发给开发者最稳。
+    完整路径形如：
+        C:\Users\<你的用户名>\AppData\Local\FlowHarvester\logs\
+
+    快速打开：
+        在文件资源管理器地址栏粘贴 %LOCALAPPDATA%\FlowHarvester\logs
+        然后按回车。
+        （AppData\Local 默认是隐藏目录，不要去手动一层层翻；
+        用 %LOCALAPPDATA% 这个变量直接跳最快。）
+
+    或在 cmd 里执行：
+        explorer %LOCALAPPDATA%\FlowHarvester\logs
+
+文件夹里有这几类文件：
+
+    app.log              总日志，最重要。所有模块（Web 服务 / 调度
+                         器 / 各账号 worker）都会汇总写到这里。
+                         排查问题首选看这个文件。
+
+    scheduler.log        调度器单独的日志。看调度器有没有在干活、
+                         每轮 pass 取了哪个账号 / 任务。
+
+    worker_WS_A.log      每个账号一份独立 worker 日志（文件名按
+    worker_WS_B.log      账号编号区分）。看具体某个账号当时在浏览
+    worker_WS_C.log      器里做了什么、报了什么错，最详细。
+    ...
+
+    errors.log           只收 WARNING 及以上级别（封号、登录失效、
+                         异常）。账号反复出问题时翻这个最快。
+
+    crash.log            只在工具崩溃时才会出现。如果 cmd 窗口
+                         "啪" 一下消失了，回来翻这个，里面是完整
+                         报错堆栈。
+
+
+把整个 logs 文件夹打包发给开发者最稳。也可以只发 app.log
+（如果是某个具体账号的问题，再加上对应的 worker_WS_X.log）。
+
+
+更省事的做法（推荐）：
+
+    每个页面右下角有个 "打包诊断包" 按钮，点一下：
+        系统会自动把 logs / DB 快照 / 截图 打包成一个 zip 文件，
+        浏览器自动开始下载。把这个 zip 发给开发者就够了，
+        不用自己再去找文件夹。
+
+    zip 文件名形如：diagnostic_20260508T123456Z.zip
+
+
+如果开发要远程实时查看（视频会议时常用）：
+
+    右下角还有个 "开启远程调试" 按钮，点一下：
+        系统会启动一个临时的公网链接（cloudflared 隧道），
+        把当前的 dashboard 暴露给外网。开发只要在浏览器
+        打开这个链接，就能看到你看到的同一份 dashboard
+        和实时日志。
+
+    重要安全提示：
+
+        * 这个链接是公开的，**只发给开发者本人**，不要外传。
+        * 调试结束后立刻点 "关闭远程调试" 把链接停掉。
+        * 链接有效期跟工具运行期一致，关 cmd 窗口即失效。
+
+    如果按钮报错 "未找到 cloudflared"：
+        说明发给你的安装包旧了（不带远程调试功能），
+        请联系开发重发新版安装包。
+
+
+补充：生成的视频不在 logs 文件夹里，在这里：
+
+    %USERPROFILE%\Documents\FlowHarvester\output\
+
+    完整路径形如：
+        C:\Users\<你的用户名>\Documents\FlowHarvester\output\
+
+    任务详情页点 "打开文件夹" 直接跳转，不用手动找。
 
 
 ================================================================

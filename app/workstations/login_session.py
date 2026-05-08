@@ -64,6 +64,16 @@ _NO_FLOW_ACCESS_PHRASES = (
     "it looks like you do not have access to flow",
 )
 
+# How often (seconds) the URL-watch loop dumps the current ``collected``
+# URL set to INFO log. Customer-side debugging hinges on this — without
+# it we never see what URLs the SPA actually served when capture failed.
+_FORENSIC_DUMP_INTERVAL_SEC = 10.0
+
+# After this long without a project-URL match, additionally dump a
+# screenshot + DOM head. Long enough to skip noisy login-page warmup,
+# short enough to fire while the operator is still watching.
+_FORENSIC_DEEP_DUMP_AFTER_SEC = 30.0
+
 
 class LoginState(str, Enum):
     NOT_STARTED = "not_started"
@@ -266,6 +276,61 @@ class LoginSession:
                     return True
         return False
 
+    def _forensic_deep_dump(self, pages, urls: list[str]) -> None:
+        """Drop a screenshot + ~5KB of body text per Flow page into the
+        logs dir when capture is taking longer than expected. Lets dev
+        diagnose customer-side login stalls without needing to repro:
+        the dump shows whether the operator is still on the Google
+        sign-in page, looking at a no-Flow-access takeover, or on a
+        project page whose URL the regex isn't catching.
+        """
+        try:
+            from app import paths as app_paths
+            log_dir = app_paths.logs_dir()
+            log_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:  # noqa: BLE001
+            self._log.warning(
+                "login %s deep dump skipped (logs_dir unwritable): %s",
+                self.workstation_id, exc,
+            )
+            return
+        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        self._log.warning(
+            "login %s no project url after %ds — running deep dump. urls=%s",
+            self.workstation_id, int(_FORENSIC_DEEP_DUMP_AFTER_SEC), urls,
+        )
+        for idx, p in enumerate(pages):
+            try:
+                page_url = (p.url or "")[:200]
+            except Exception:  # noqa: BLE001
+                page_url = "<unreadable>"
+            stem = f"login_{self.workstation_id}_{ts}_p{idx}"
+            try:
+                p.screenshot(
+                    path=str(log_dir / f"{stem}.png"),
+                    full_page=False,
+                )
+                self._log.info("login %s screenshot saved url=%s",
+                               self.workstation_id, page_url)
+            except Exception as exc:  # noqa: BLE001
+                self._log.warning(
+                    "login %s screenshot failed url=%s: %s",
+                    self.workstation_id, page_url, exc,
+                )
+            try:
+                body = p.evaluate("() => document.body && document.body.innerText || ''")
+                if isinstance(body, str):
+                    snippet = body[:5000]
+                    (log_dir / f"{stem}.txt").write_text(
+                        f"url={page_url}\n\n{snippet}",
+                        encoding="utf-8",
+                    )
+            except Exception as exc:  # noqa: BLE001
+                self._log.warning(
+                    "login %s body dump failed url=%s: %s",
+                    self.workstation_id, page_url, exc,
+                )
+
     def _wait_for_project_ready(self, pages, captured_url: str) -> None:
         """Best-effort barrier between "URL matched" and "browser closes".
 
@@ -317,30 +382,85 @@ class LoginSession:
             )
 
     def _watch_for_project_url(self, ctx, event_urls: list[str]) -> None:
-        """Scan every open page until one URL matches the project pattern."""
+        """Scan every open page until one URL matches the project pattern.
+
+        Forensic-logging policy: this is the silent-failure hotspot.
+        Every poll's ``collected`` set is INFO-logged once every
+        ``_FORENSIC_DUMP_INTERVAL_SEC`` so when capture mysteriously
+        never fires the customer's app.log shows what URLs the SPA was
+        actually serving (the regex may have drifted, an account-prefix
+        like ``/u/0/`` may have been added, etc.). After
+        ``_FORENSIC_DEEP_DUMP_AFTER_SEC`` we additionally dump a
+        screenshot + DOM head so we can tell whether the page is on
+        a Flow project view, a Google sign-in interstitial, or a
+        ``no_flow_access`` takeover.
+        """
+        loop_started = time.monotonic()
+        last_dump_at = 0.0
+        deep_dump_done = False
+        last_logged_collected: set[str] = set()
         while not self._stop.is_set():
             try:
                 pages = list(ctx.pages)
-            except Exception:
-                self._set(state=LoginState.CANCELLED, finished_at=_now_iso())
+            except Exception as exc:  # noqa: BLE001
+                self._log.warning(
+                    "login %s ctx.pages failed (browser closed?): %s",
+                    self.workstation_id, exc, exc_info=True,
+                )
+                self._set(
+                    state=LoginState.CANCELLED,
+                    error=f"ctx.pages failed: {exc}",
+                    finished_at=_now_iso(),
+                )
                 return
             if not pages:
+                self._log.warning(
+                    "login %s pages list empty — operator closed window?",
+                    self.workstation_id,
+                )
                 self._set(state=LoginState.CANCELLED, finished_at=_now_iso())
                 return
 
             collected: list[str] = []
             for p in pages:
                 try:
-                    collected.append(p.url)
-                except Exception:  # noqa: BLE001
-                    pass
+                    if p.url:
+                        collected.append(p.url)
+                except Exception as exc:  # noqa: BLE001
+                    self._log.debug(
+                        "login %s p.url read failed: %s",
+                        self.workstation_id, exc,
+                    )
                 try:
                     live = p.evaluate("() => location.href")
                     if isinstance(live, str):
                         collected.append(live)
-                except Exception:  # noqa: BLE001
-                    pass
+                except Exception as exc:  # noqa: BLE001
+                    self._log.debug(
+                        "login %s p.evaluate(location.href) failed: %s",
+                        self.workstation_id, exc,
+                    )
             collected.extend(event_urls)
+
+            now = time.monotonic()
+            current = set(filter(None, collected))
+            if current != last_logged_collected and (
+                now - last_dump_at >= _FORENSIC_DUMP_INTERVAL_SEC
+            ):
+                self._log.info(
+                    "login %s state=%s waiting urls=%s",
+                    self.workstation_id, self._snap.state.value,
+                    sorted(current),
+                )
+                last_logged_collected = current
+                last_dump_at = now
+
+            elapsed = now - loop_started
+            if (not deep_dump_done
+                    and elapsed >= _FORENSIC_DEEP_DUMP_AFTER_SEC
+                    and pages):
+                deep_dump_done = True
+                self._forensic_deep_dump(pages, sorted(current))
 
             for url in collected:
                 match = PROJECT_URL_RE.match(url) if url else None

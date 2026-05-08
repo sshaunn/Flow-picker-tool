@@ -23,9 +23,11 @@ from app.config.loader import AppConfig
 from app.db.connection import connect
 from app.db.schema import init_schema
 from app.scheduler.daemon import SchedulerDaemon
+from app.web.routes import diagnostics as diagnostics_routes
 from app.web.routes import files as files_routes
 from app.web.routes import login as login_routes
 from app.web.routes import mode as mode_routes
+from app.web.routes import tunnel as tunnel_routes
 from app.web.routes import pages as page_routes
 from app.web.routes import scheduler as scheduler_routes
 from app.web.routes import tasks as tasks_routes
@@ -123,6 +125,12 @@ def create_app(
     app.state.use_mock = use_mock
     app.state.mock_round_plans_per_ws = mock_round_plans_per_ws
     app.state.login_sessions = LoginSessionRegistry()
+    # Tunnel manager: lazy-initialised. The port is set by the caller
+    # (``__main__`` or ``cli serve``) after it picks a free port. The
+    # dashboard "开启远程调试" button drives this manager.
+    from app.tunnel import TunnelManager
+    app.state.tunnel_manager = TunnelManager(port=0)
+    app.state.bound_port = 0
 
     app.include_router(ws_routes.router)
     app.include_router(tasks_routes.router)
@@ -132,6 +140,8 @@ def create_app(
     app.include_router(login_routes.router)
     app.include_router(files_routes.router)
     app.include_router(mode_routes.router)
+    app.include_router(diagnostics_routes.router)
+    app.include_router(tunnel_routes.router)
 
     # Make the friendly-error helpers callable from any Jinja2 template.
     from app.web import messages as _messages

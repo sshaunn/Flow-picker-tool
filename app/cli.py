@@ -1198,6 +1198,9 @@ def serve(
         auto_start_daemon=not no_auto_start,
         idle_poll_sec=idle_poll_sec,
     )
+    # Tell the tunnel manager which port to forward — see ``app.tunnel``.
+    app.state.bound_port = port
+    app.state.tunnel_manager.port = port
     click.echo(f"flow-harvester serving at http://{host}:{port}")
     uvicorn.run(app, host=host, port=port, log_level="info")
 

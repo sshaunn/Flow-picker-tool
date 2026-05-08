@@ -250,7 +250,15 @@ def run_multi_workstation(
                 try:
                     fut.result()
                 except Exception as exc:  # noqa: BLE001
-                    log.error("worker thread for ws=%s raised: %s", ws_id, exc)
+                    # ``exc_info=True`` so the customer's app.log shows
+                    # the full traceback, not just ``str(exc)``. Without
+                    # the stack we can't tell whether an OSError came
+                    # from write_bytes, mkdir, or some patchright
+                    # internal — and that costs a customer round-trip.
+                    log.error(
+                        "worker thread for ws=%s raised: %s",
+                        ws_id, exc, exc_info=True,
+                    )
                 in_flight.pop(ws_id, None)
 
     try:

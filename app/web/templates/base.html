@@ -50,8 +50,122 @@
   </main>
 
   <footer class="max-w-6xl mx-auto px-4 py-6 text-xs text-slate-400">
-    Flow Harvester &middot; 本地运行
+    <div class="flex items-center justify-between mb-3">
+      <div>Flow Harvester &middot; 本地运行</div>
+      <div class="flex gap-4">
+        <button id="diag-bundle-btn" type="button"
+                class="text-slate-500 hover:text-slate-700 underline-offset-2 hover:underline"
+                title="打包当前 logs / DB / 截图为 zip，发给开发用于排查">
+          打包诊断包
+        </button>
+        <button id="tunnel-toggle-btn" type="button"
+                class="text-slate-500 hover:text-slate-700 underline-offset-2 hover:underline"
+                title="启动 cloudflared 隧道，把当前 dashboard 暴露成公网 URL（仅给开发本人，不要外传）">
+          开启远程调试
+        </button>
+      </div>
+    </div>
+    <div id="tunnel-status-row" class="hidden px-3 py-2 bg-amber-50 border border-amber-200 text-amber-900 rounded">
+      <div id="tunnel-status-line" class="text-xs"></div>
+      <div id="tunnel-url-line" class="mt-1 font-mono text-[11px] break-all"></div>
+    </div>
   </footer>
+
+  <script>
+  // Tunnel control: open / close cloudflared trycloudflare.com tunnel
+  // for live remote debugging by dev. Status is polled every 5s while
+  // the row is visible to surface URL / errors / disconnects.
+  (() => {
+    const btn = document.getElementById('tunnel-toggle-btn');
+    if (!btn) return;
+    const row = document.getElementById('tunnel-status-row');
+    const line = document.getElementById('tunnel-status-line');
+    const urlLine = document.getElementById('tunnel-url-line');
+
+    const render = (s) => {
+      if (s.running) {
+        row.classList.remove('hidden');
+        line.textContent = '远程调试已开启 — 仅复制下方 URL 发给开发本人，不要外传。停止请点 "关闭远程调试"';
+        urlLine.textContent = s.public_url || '正在等待 URL…';
+        btn.textContent = '关闭远程调试';
+      } else if (s.error) {
+        row.classList.remove('hidden');
+        row.classList.remove('bg-amber-50', 'border-amber-200', 'text-amber-900');
+        row.classList.add('bg-red-50', 'border-red-200', 'text-red-900');
+        line.textContent = s.error;
+        urlLine.textContent = '';
+        btn.textContent = '开启远程调试';
+      } else {
+        row.classList.add('hidden');
+        btn.textContent = '开启远程调试';
+      }
+    };
+
+    let pollTimer = null;
+    const poll = async () => {
+      try {
+        const r = await fetch('/api/tunnel/status');
+        if (r.ok) render(await r.json());
+      } catch (_) { /* network blip */ }
+    };
+
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      btn.textContent = '处理中…';
+      try {
+        const r0 = await fetch('/api/tunnel/status');
+        const cur = await r0.json();
+        const path = cur.running ? '/api/tunnel/stop' : '/api/tunnel/start';
+        const r = await fetch(path, {method: 'POST'});
+        const s = await r.json();
+        render(s);
+        if (pollTimer) clearInterval(pollTimer);
+        pollTimer = setInterval(poll, 5000);
+      } catch (e) {
+        alert('远程调试切换失败：' + e);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+    poll();
+  })();
+
+  // Diagnostic bundle: one click → POST build → trigger download.
+  // Used for customer-side support tickets so operators don't have to
+  // hand-collect logs / screenshots / DB. Endpoint at /api/diagnostics.
+  (() => {
+    const btn = document.getElementById('diag-bundle-btn');
+    if (!btn) return;
+    btn.addEventListener('click', async () => {
+      const original = btn.textContent;
+      btn.textContent = '打包中…';
+      btn.disabled = true;
+      try {
+        const resp = await fetch('/api/diagnostics/build', {method: 'POST'});
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          alert('打包失败：' + (err.detail || resp.statusText));
+          return;
+        }
+        const body = await resp.json();
+        // Trigger browser download
+        const a = document.createElement('a');
+        a.href = body.download_url;
+        a.download = body.filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        btn.textContent = '已打包 ' + body.filename;
+        setTimeout(() => { btn.textContent = original; }, 4000);
+      } catch (e) {
+        alert('打包失败：' + e);
+        btn.textContent = original;
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  })();
+  </script>
 
   <script>
   (() => {

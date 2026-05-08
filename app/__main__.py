@@ -188,6 +188,11 @@ def main() -> None:
     port = _pick_free_port(preferred_port)
     url = f"http://127.0.0.1:{port}/"
 
+    # Tunnel manager needs the bound port so cloudflared knows where to
+    # forward to. App state is the simplest plumbing — see ``app.tunnel``.
+    app.state.bound_port = port
+    app.state.tunnel_manager.port = port
+
     # Banner so the customer immediately sees the dashboard URL even if
     # the auto-open below is blocked by their browser settings.
     print("=" * 60)

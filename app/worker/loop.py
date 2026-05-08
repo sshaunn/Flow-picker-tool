@@ -452,8 +452,21 @@ def _download_round(
         )
         try:
             flow.download_candidate(candidate, target_path)
-        except FlowPortError as exc:
+        except Exception as exc:  # noqa: BLE001
+            # Was ``except FlowPortError`` — but write_bytes / OS-level
+            # IO can raise OSError, OneDrive / Defender can raise
+            # PermissionError, patchright can raise its own internal
+            # types. Any of those used to escape this block, leave
+            # the task stuck in ``running``, and end up logged
+            # without context up at runner.multi's broad handler.
+            # Catch everything here so download_failed always lands
+            # in error_logs with a screenshot.
             failed += 1
+            log.exception(
+                "download_candidate failed task_id=%s round=%d seq=%d type=%s",
+                task.task_id, round_index, candidate.sequence_no,
+                type(exc).__name__,
+            )
             save_error_snapshot(
                 conn,
                 log=log,

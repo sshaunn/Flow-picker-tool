@@ -57,6 +57,19 @@ jobs:
             Copy-Item -Force "docs\使用手册.txt" "dist\FlowHarvester\使用手册.txt"
           }
 
+      - name: Download cloudflared.exe (for remote-debug tunnel)
+        shell: pwsh
+        run: |
+          $url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
+          $dest = "dist\FlowHarvester\cloudflared.exe"
+          Write-Host "Downloading cloudflared from $url"
+          Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing
+          $size = (Get-Item $dest).Length
+          Write-Host "cloudflared.exe size: $size bytes"
+          if ($size -lt 1MB) {
+            throw "cloudflared.exe download too small — $size bytes; expected ~25MB"
+          }
+
       - name: Pack bundle zip
         shell: pwsh
         run: |
