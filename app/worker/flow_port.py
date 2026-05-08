@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Protocol
+from typing import Optional, Protocol
 
 
 class PageState(str, Enum):
@@ -92,7 +92,9 @@ class FlowPort(Protocol):
 
     def trigger_generation(self) -> None: ...
 
-    def wait_for_round_complete(self, timeout_sec: int) -> GenerationRoundResult: ...
+    def wait_for_round_complete(
+        self, timeout_sec: int, *, expected_count: Optional[int] = None,
+    ) -> GenerationRoundResult: ...
 
     def download_candidate(self, candidate: CandidateMeta, target_path: Path) -> None: ...
 

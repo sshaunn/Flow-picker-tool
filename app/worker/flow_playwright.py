@@ -1397,12 +1397,27 @@ class PlaywrightFlowPort(FlowPort):
             pass
         self._dismiss_popups()
 
-    def wait_for_round_complete(self, timeout_sec: int) -> GenerationRoundResult:
+    def wait_for_round_complete(
+        self, timeout_sec: int, *, expected_count: Optional[int] = None,
+    ) -> GenerationRoundResult:
         """Wait until new candidates appear and the count is stable.
 
         Stability check (``stability_window_sec``) prevents us from
         returning early when x4 outputs are still streaming in one-by-one.
+
+        ``expected_count`` is also pulled from ``self._flow_mode_spec``
+        (operator-configured Flow ``x{N}`` output picker) when not
+        explicitly passed. The early-exit branch then waits until at
+        least that many videos have arrived before returning — without
+        the gate, Flow's DOM mounts candidates one-at-a-time and the
+        first ``video`` upgrade short-circuits the round, leaving the
+        operator with ``output_count=3`` settings producing only 1-2
+        actual mp4s. Real customer bug, see logs of 2026-05-08 12:55.
         """
+        if expected_count is None and self._flow_mode_spec is not None:
+            spec_count = getattr(self._flow_mode_spec, "output_count", None)
+            if isinstance(spec_count, int) and spec_count > 0:
+                expected_count = spec_count
         self._require_page()
         deadline = time.time() + max(1, timeout_sec)
         round_start = time.time()
@@ -1543,7 +1558,21 @@ class PlaywrightFlowPort(FlowPort):
             # This is the common Veo path: poster image at ~10s, video
             # mounts at ~60-90s, we return the moment the upgrade is
             # observed without any extra delay.
-            if new_only and all(kind == "video" for _, kind in new_only):
+            #
+            # Honor ``expected_count`` if the caller supplied it: don't
+            # short-circuit on the first video upgrade when Flow's DOM
+            # is still streaming additional candidates. Without this
+            # gate, operators who set ``output_count=3`` get only 1-2
+            # videos per round because the DOM can mount candidate
+            # slots one-at-a-time and ``new_only`` reads as
+            # ``[(src, video)]`` long before the other slots appear.
+            videos_ready = (
+                new_only and all(kind == "video" for _, kind in new_only)
+            )
+            enough_videos = (
+                expected_count is None or len(new_only) >= expected_count
+            )
+            if videos_ready and enough_videos:
                 candidates = [
                     CandidateMeta(sequence_no=i + 1, download_handle=src, media_kind=kind)
                     for i, (src, kind) in enumerate(new_only)
@@ -1553,6 +1582,15 @@ class PlaywrightFlowPort(FlowPort):
                     len(candidates),
                 )
                 return GenerationRoundResult(state=PageState.READY, candidates=candidates)
+            if videos_ready and expected_count is not None and (
+                time.time() - last_change_time
+            ) % 30 < 2.5:
+                # Periodic INFO so dev can see we're holding off the
+                # early-exit waiting for the remaining slots.
+                _LOG.info(
+                    "[round] %d/%d videos ready — waiting for the rest",
+                    len(new_only), expected_count,
+                )
 
             if new_only and new_only == last_new:
                 # Set hasn't changed — once stability window passes we

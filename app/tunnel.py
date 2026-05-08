@@ -136,9 +136,21 @@ class TunnelManager:
                 )
             self._error = None
             self._url = None
+            # ``--protocol http2`` forces TCP/443 instead of QUIC/UDP +
+            # SRV DNS lookup. The default (QUIC) needs to resolve
+            # ``region2.v2.argotunnel.com`` via SRV record — many
+            # corporate / VPN DNS resolvers strip SRV responses, which
+            # causes ``cloudflared`` to print the trycloudflare URL but
+            # fail to actually connect (dev sees Cloudflare error 1033
+            # "origin offline"). HTTP/2 mode survives those resolvers
+            # because it just opens a TCP connection to a regular
+            # ``*.argotunnel.com`` hostname. Real customer bug, see
+            # logs of 2026-05-08 — SRV lookup failed so the tunnel
+            # registered but no edge connection was established.
             cmd = [
                 str(binary), "tunnel",
                 "--url", f"http://localhost:{self.port}",
+                "--protocol", "http2",
                 "--no-autoupdate",
             ]
             _LOG.info("starting cloudflared tunnel: %s", cmd)

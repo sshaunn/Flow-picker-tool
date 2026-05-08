@@ -45,8 +45,19 @@ from typing import Callable, Optional
 # tweak by Google still trips the capture. ``projects?`` covers both the
 # canonical ``/project/<uuid>`` and the occasional ``/projects/<uuid>``
 # plural variant. Trailing query / fragment is allowed and ignored.
+#
+# Locale segment: customers running Chrome with Chinese (or any non-en)
+# UI get a path like ``/fx/zh/tools/flow/project/<uuid>`` —
+# Google injects the BCP-47 language code between ``fx`` and ``tools``.
+# Accept an optional 2-letter language with optional region (``zh``,
+# ``en-US``, ``ja``, ``pt-BR`` ...) so the capture works regardless of
+# the operator's Chrome locale. Real customer bug, see logs of
+# 2026-05-08 12:51 — login a saw URL ``.../fx/zh/tools/flow/project/...``
+# and the prior regex never matched, so the session sat in
+# WAITING_FOR_PROJECT silently.
 PROJECT_URL_RE = re.compile(
-    r"https://labs\.google/fx/tools/flow/projects?/([0-9a-fA-F-]{8,})"
+    r"https://labs\.google/fx(?:/[a-z]{2}(?:-[A-Z]{2})?)?/tools/flow/"
+    r"projects?/([0-9a-fA-F-]{8,})"
 )
 
 

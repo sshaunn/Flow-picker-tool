@@ -107,7 +107,9 @@ class MockFlowPort(FlowPort):
         except StopIteration as exc:
             raise FlowPortError("MockFlowPort: no more round plans available") from exc
 
-    def wait_for_round_complete(self, timeout_sec: int) -> GenerationRoundResult:
+    def wait_for_round_complete(
+        self, timeout_sec: int, *, expected_count=None,
+    ) -> GenerationRoundResult:
         plan = self._current_plan
         if plan is None:
             raise FlowPortError("wait_for_round_complete called before trigger_generation")
