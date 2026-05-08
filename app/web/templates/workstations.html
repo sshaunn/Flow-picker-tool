@@ -34,7 +34,7 @@
           {% if ws.flow_project_url %}
             <a href="{{ ws.flow_project_url }}" target="_blank" class="text-blue-600 hover:underline">{{ ws.flow_project_url }}</a>
           {% else %}
-            <span class="italic">未设置</span>
+            <span class="italic text-red-600">⚠ 未设置 — 调度器不会取该账号</span>
           {% endif %}
         </td>
         <td class="px-4 py-3 text-right">

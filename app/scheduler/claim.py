@@ -57,11 +57,25 @@ def _pick_healthy_workstation(
     today_str: str,
     only_workstation_id: Optional[str] = None,
 ) -> Optional[str]:
+    # ``flow_project_url IS NOT NULL AND != ''``: a workstation that
+    # was added but never had its project URL captured (login failed,
+    # operator closed Chrome before capture, regex didn't match the
+    # SPA's locale-prefixed URL, ...) has no usable project to point
+    # the worker at. The worker would just navigate to the entry URL
+    # and fail silently. Real customer bug, see diagnostic bundle of
+    # 2026-05-08 12:51 — login a captured nothing because the SPA URL
+    # included ``/zh/``, but the WS row stayed status='healthy' so
+    # the scheduler kept claiming it for new tasks. Now: refuse to
+    # claim until login produces a URL. Operator must complete login
+    # (or paste a URL into the WS edit form) for the WS to become
+    # eligible.
     sql = """
         SELECT id FROM workstations
          WHERE status = 'healthy'
            AND stats_date = ?
            AND (today_success_count + today_failure_count) < daily_task_limit
+           AND flow_project_url IS NOT NULL
+           AND flow_project_url != ''
     """
     params: list = [today_str]
     if only_workstation_id is not None:

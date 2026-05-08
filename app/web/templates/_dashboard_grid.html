@@ -77,7 +77,11 @@
           <a href="/workstations/{{ ws.id }}" class="flex-1 hover:underline">
             <div class="text-sm font-medium">{{ ws.id }}</div>
             <div class="text-xs text-slate-500">{{ ws.account_label }}</div>
-            {% if health %}
+            {% if not ws.flow_project_url %}
+              <div class="text-xs text-red-700 mt-0.5">
+                ⚠ 未识别 project，请重新登录
+              </div>
+            {% elif health %}
               {% if ws.status == 'cooldown' and health.cooldown_until %}
                 <div class="text-xs text-amber-700 mt-0.5">
                   冷却到 {{ health.cooldown_until }}{% if health.ban_probe_count %} · strike {{ health.ban_probe_count }}/5{% endif %}

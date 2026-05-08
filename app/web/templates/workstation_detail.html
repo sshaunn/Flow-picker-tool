@@ -49,6 +49,14 @@
   </div>
 </div>
 
+{% if not ws.flow_project_url %}
+<div class="rounded-lg border border-red-200 bg-red-50 p-4 mb-6 text-sm text-red-900">
+  <strong>未识别 Flow Project</strong>：此账号还没有捕获到 Flow project URL，
+  调度器不会给它分配任务（避免 worker 跑到错误页面）。
+  请在下方 "登录 &amp; Project" 区域点 "登录并识别 Project" 完成登录。
+</div>
+{% endif %}
+
 {% if ws.status == 'nurturing' %}
 <div class="rounded-lg border border-purple-200 bg-purple-50 p-4 mb-6 text-sm text-purple-900">
   <strong>养号状态</strong>：调度器不会自动取该账号。

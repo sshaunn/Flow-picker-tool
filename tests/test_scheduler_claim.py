@@ -114,6 +114,74 @@ def test_max_retry_blocks_claim(db_path: Path, workstations) -> None:
         conn.close()
 
 
+def test_claim_skips_workstation_without_project_url(
+    db_path: Path, workstations,
+) -> None:
+    """A workstation with no flow_project_url (login never captured a
+    URL, or operator added a WS without logging in) must NOT be picked
+    up by the scheduler — the worker would just navigate to nothing
+    and fail silently. Real customer scenario, see diagnostic bundle
+    of 2026-05-08 12:51 where login_a captured nothing because the
+    URL contained ``/zh/`` and the WS row stayed status='healthy'.
+    """
+    sync_workstations(db_path, workstations)
+    conn = connect(db_path)
+    try:
+        # Strip flow_project_url from every WS to simulate "logged in
+        # but capture failed".
+        conn.execute(
+            "UPDATE workstations SET flow_project_url = NULL"
+        )
+        conn.commit()
+        _seed(conn)
+        claim = claim_one(conn)
+        assert claim is None, (
+            "claim_one returned a WS with NULL flow_project_url"
+        )
+    finally:
+        conn.close()
+
+
+def test_claim_skips_workstation_with_empty_project_url(
+    db_path: Path, workstations,
+) -> None:
+    """Empty string is treated the same as NULL — operators who clear
+    the field via the edit form shouldn't get tasks routed to a WS
+    that points at no project."""
+    sync_workstations(db_path, workstations)
+    conn = connect(db_path)
+    try:
+        conn.execute("UPDATE workstations SET flow_project_url = ''")
+        conn.commit()
+        _seed(conn)
+        claim = claim_one(conn)
+        assert claim is None
+    finally:
+        conn.close()
+
+
+def test_claim_routes_to_only_workstation_with_project_url(
+    db_path: Path, workstations,
+) -> None:
+    """When some WS have URLs and some don't, claim should pick from
+    the populated set without bailing."""
+    sync_workstations(db_path, workstations)
+    conn = connect(db_path)
+    try:
+        # Strip URL from WS_A and WS_B; only WS_C is fully configured.
+        conn.execute(
+            "UPDATE workstations SET flow_project_url = NULL "
+            "WHERE id IN ('WS_A', 'WS_B')"
+        )
+        conn.commit()
+        _seed(conn)
+        claim = claim_one(conn)
+        assert claim is not None
+        assert claim.workstation_id == "WS_C"
+    finally:
+        conn.close()
+
+
 def test_concurrent_claim_only_one_wins(db_path: Path, workstations) -> None:
     sync_workstations(db_path, workstations)
     conn = connect(db_path)

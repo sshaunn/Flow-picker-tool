@@ -92,6 +92,15 @@ def workstations(tmp_path: Path) -> list[WorkstationConfig]:
                 browser_profile_path=str(profile),
                 daily_task_limit=20,
                 status="healthy",
+                # Real customer flows always set this via login capture.
+                # Tests need it populated too — claim_one now refuses
+                # to schedule a WS without a project URL (so an
+                # operator who forgot to log in doesn't see tasks
+                # silently failing on a wrong-URL navigation).
+                flow_project_url=(
+                    f"https://labs.google/fx/tools/flow/project/"
+                    f"00000000-0000-0000-0000-{label.encode().hex()[:12]:0<12}"
+                ),
             )
         )
     return out
