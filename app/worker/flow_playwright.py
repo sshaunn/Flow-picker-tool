@@ -204,6 +204,26 @@ class PlaywrightFlowPort(FlowPort):
             self._teardown_pw()
             raise FlowPortError(f"failed to launch browser: {exc}") from exc
 
+        # Force English Flow UI by rewriting Accept-Language for every
+        # request to *.labs.google. Flow's React app picks translations
+        # based on this header, so customer accounts whose Chrome locale
+        # is Vietnamese / Thai / Khmer / etc. would otherwise render
+        # ``Tạo`` / ``สร้าง`` / ``បង្កើត`` instead of ``Create`` and our
+        # text-based selectors miss. This is request-level rewrite (not
+        # adding a custom header), and the navigator.language fingerprint
+        # stays untouched — same situation a real VPN / corporate-policy
+        # user produces, so it shouldn't tip Google's anti-bot.
+        try:
+            self._context.route(
+                "**/*labs.google*",
+                lambda route: route.continue_(headers={
+                    **route.request.headers,
+                    "accept-language": "en-US,en;q=0.9",
+                }),
+            )
+        except Exception as exc:  # noqa: BLE001 — best-effort
+            _LOG.warning("accept-language route hook failed: %s", exc)
+
         # Reuse existing tab if present (some profiles open about:blank).
         if self._context.pages:
             self._page = self._context.pages[0]

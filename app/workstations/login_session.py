@@ -85,12 +85,28 @@ _FORENSIC_DUMP_INTERVAL_SEC = 10.0
 # short enough to fire while the operator is still watching.
 _FORENSIC_DEEP_DUMP_AFTER_SEC = 30.0
 
+# How long we keep the language-settings tab open waiting for the
+# operator to switch the primary language to English (US). 5 minutes
+# is "generous enough that even an unfamiliar operator finishes the
+# 3-click flow in time" without "this hangs forever if the operator
+# stepped away". Tab auto-closes on timeout regardless.
+_LANGUAGE_WAIT_TIMEOUT_SEC = 5 * 60.0
+_LANGUAGE_POLL_INTERVAL_SEC = 1.5
+
 
 class LoginState(str, Enum):
     NOT_STARTED = "not_started"
     OPENING = "opening"
     WAITING_FOR_LOGIN = "waiting_for_login"
     WAITING_FOR_PROJECT = "waiting_for_project"
+    # After project URL captured, before browser closes: open a side
+    # tab to ``myaccount.google.com/language`` and set preferred
+    # language to English. This is a one-time per-account fix that
+    # makes Flow's UI render in English on every subsequent worker
+    # session — eliminating the locale-driven selector misses we keep
+    # patching. Best-effort: failure here doesn't invalidate the
+    # captured URL, the session still ends in CAPTURED.
+    SETTING_LANGUAGE = "setting_language"
     CAPTURED = "captured"
     ERROR = "error"
     CANCELLED = "cancelled"
@@ -228,6 +244,29 @@ class LoginSession:
                 no_viewport=True,
                 chromium_sandbox=True,
             )
+            # Force English Flow UI — see same hook in flow_playwright.
+            # Doing it on the login session too means the operator sees
+            # Flow's "Create new project" / "Open project" UI in English
+            # (matches our project-URL regex + onboarding wording in the
+            # operator manual). And critically: when capture writes the
+            # URL into ``flow_project_url`` it stores the en-prefixed
+            # path (``/fx/tools/flow/...`` instead of ``/fx/vi/...``),
+            # which is what the worker session re-uses — so the worker
+            # also lands on English by default even before its own
+            # route hook runs.
+            try:
+                ctx.route(
+                    "**/*labs.google*",
+                    lambda route: route.continue_(headers={
+                        **route.request.headers,
+                        "accept-language": "en-US,en;q=0.9",
+                    }),
+                )
+            except Exception as exc:  # noqa: BLE001
+                self._log.warning(
+                    "login %s accept-language route hook failed: %s",
+                    self.workstation_id, exc,
+                )
             try:
                 # Belt-and-suspenders URL tracking. patchright's cached
                 # ``page.url`` property has been observed to lag behind
@@ -341,6 +380,175 @@ class LoginSession:
                     "login %s body dump failed url=%s: %s",
                     self.workstation_id, page_url, exc,
                 )
+
+    def _set_account_language_english(self, ctx) -> None:
+        """One-time-per-account: open ``myaccount.google.com/language``
+        in a new tab and flip the preferred language to English (US).
+
+        Why: Flow's UI is server-side translated based on the Google
+        account's preferred language (NOT chrome locale, NOT
+        Accept-Language — empirically verified 2026-05-09). Once a
+        customer's account is on English, every subsequent worker
+        session sees English UI, so our selector library doesn't have
+        to grow forever.
+
+        Best-effort: failures here don't invalidate the captured URL.
+        Worst case the account stays on its current language and the
+        v0.0.4 multilingual selectors continue to do their job.
+
+        Cookies: same Google session is reused (SSO across all
+        ``.google.com`` services). Saving preference does NOT logout
+        or rotate auth cookies — it only updates a server-side
+        profile field. Flow tab in the same context picks up English
+        on its NEXT page load (we close the chrome window after this
+        anyway, and the worker re-launches in a fresh patchright
+        session that gets the new preference).
+
+        ``?hl=en`` query forces the language settings page itself to
+        render in English regardless of current preference, so our
+        click selectors don't have to be multilingual on this page.
+        """
+        try:
+            page = ctx.new_page()
+        except Exception as exc:  # noqa: BLE001
+            self._log.warning(
+                "login %s language setup: ctx.new_page failed: %s",
+                self.workstation_id, exc,
+            )
+            return
+        try:
+            self._do_set_language(page)
+        finally:
+            try:
+                page.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _do_set_language(self, page) -> None:
+        """Open Google's language settings in a side tab and **wait
+        for the operator** to switch to English (US).
+
+        Why operator-driven instead of fully automated: Google's
+        language picker has multiple shapes (search-as-you-type
+        autocomplete, plain alphabetic list, regional sub-pickers)
+        and the dialog content sometimes mounts asynchronously with
+        no obvious aria contract. Trying to script every variant
+        would mean another locale-list-style maintenance treadmill.
+        Instead we navigate + poll: the operator does the 3 clicks
+        themselves and the program just verifies the primary language
+        row's ``aria-label`` ends up containing
+        ``English (United States)``. Robust to any UI revamp because
+        we never click anything inside the picker — only watch the
+        post-save state.
+
+        Exit conditions (whichever happens first):
+        * Primary ``[aria-label^="Edit language:"]`` row contains
+          ``English (United States)`` → operator completed the switch
+        * ``page.is_closed()`` → operator closed the tab → "skip"
+        * ``self._stop`` event → user clicked Cancel on the WS
+          login partial
+        * 5 min deadline → assume operator stepped away → close tab
+        """
+        try:
+            page.goto(
+                "https://myaccount.google.com/language?hl=en",
+                wait_until="domcontentloaded",
+                timeout=15_000,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._log.warning(
+                "login %s language setup: goto failed: %s",
+                self.workstation_id, exc,
+            )
+            return
+        try:
+            page.bring_to_front()
+        except Exception:  # noqa: BLE001
+            pass
+        # Quick early-out: if the primary already is English (US) we
+        # never bother the operator. Done.
+        if self._primary_label_is_english(page):
+            self._log.info(
+                "login %s language: primary already English (US); skipping",
+                self.workstation_id,
+            )
+            return
+
+        try:
+            current = self._read_primary_label(page)
+        except Exception:  # noqa: BLE001
+            current = ""
+        self._log.info(
+            "login %s language: waiting for operator to change %r → English (US)",
+            self.workstation_id, current,
+        )
+
+        # Poll until either the primary aria-label flips to English (US),
+        # the operator closes the tab (treated as "skip"), the operator
+        # cancels the whole login, or we hit the 5-minute deadline.
+        deadline = time.monotonic() + _LANGUAGE_WAIT_TIMEOUT_SEC
+        last_log_at = 0.0
+        while time.monotonic() < deadline:
+            if self._stop.is_set():
+                self._log.info(
+                    "login %s language: stop event set, aborting wait",
+                    self.workstation_id,
+                )
+                return
+            try:
+                if page.is_closed():
+                    self._log.info(
+                        "login %s language: settings tab closed by operator "
+                        "(treated as skip)", self.workstation_id,
+                    )
+                    return
+            except Exception:  # noqa: BLE001
+                return
+            if self._primary_label_is_english(page):
+                self._log.info(
+                    "login %s language: operator changed primary to "
+                    "English (US) — saving …", self.workstation_id,
+                )
+                # Give the save round-trip a moment to commit before the
+                # caller closes the chrome window. ``networkidle`` covers
+                # both the click POST and any redirect.
+                try:
+                    page.wait_for_load_state("networkidle", timeout=8_000)
+                except Exception:  # noqa: BLE001
+                    pass
+                self._log.info(
+                    "login %s language: change confirmed",
+                    self.workstation_id,
+                )
+                return
+            now = time.monotonic()
+            if now - last_log_at >= 30.0:
+                self._log.info(
+                    "login %s language: still waiting (%.0fs elapsed) — "
+                    "operator hasn't switched primary to English yet",
+                    self.workstation_id,
+                    now - (deadline - _LANGUAGE_WAIT_TIMEOUT_SEC),
+                )
+                last_log_at = now
+            time.sleep(_LANGUAGE_POLL_INTERVAL_SEC)
+        self._log.warning(
+            "login %s language: timed out after %ds without an English "
+            "switch — closing tab anyway", self.workstation_id,
+            int(_LANGUAGE_WAIT_TIMEOUT_SEC),
+        )
+
+    def _read_primary_label(self, page) -> str:
+        try:
+            return (
+                page.locator('[aria-label^="Edit language:"]').first
+                    .get_attribute("aria-label", timeout=2_000)
+                or ""
+            )
+        except Exception:  # noqa: BLE001
+            return ""
+
+    def _primary_label_is_english(self, page) -> bool:
+        return "English (United States)" in self._read_primary_label(page)
 
     def _wait_for_project_ready(self, pages, captured_url: str) -> None:
         """Best-effort barrier between "URL matched" and "browser closes".
@@ -499,6 +707,22 @@ class LoginSession:
                             finished_at=_now_iso(),
                         )
                         return
+                    # Best-effort: flip Google account preferred language
+                    # to English so Flow renders English UI on every
+                    # subsequent session. Runs in a side tab, doesn't
+                    # touch the Flow tab, and is fully isolated from the
+                    # captured URL — failure here just means selectors
+                    # for that locale will still be needed (current
+                    # behaviour). Cookies persist (preference change
+                    # doesn't logout).
+                    self._set(state=LoginState.SETTING_LANGUAGE)
+                    try:
+                        self._set_account_language_english(ctx)
+                    except Exception as exc:  # noqa: BLE001
+                        self._log.warning(
+                            "login %s language setup raised: %s",
+                            self.workstation_id, exc, exc_info=True,
+                        )
                     self._set(
                         state=LoginState.CAPTURED,
                         captured_url=captured,
