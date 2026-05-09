@@ -339,7 +339,7 @@ class PlaywrightFlowPort(FlowPort):
         context: str,
         tried_selectors: list[str],
         scope=None,
-    ) -> None:
+    ) -> str:
         """Forensic helper: when a multilingual selector list fails to
         match, dump every visible ``button``'s text + aria-label so the
         next bundle tells us which locale string we missed.
@@ -347,9 +347,16 @@ class PlaywrightFlowPort(FlowPort):
         ``scope`` is an optional Locator (e.g. an open dialog); if not
         given we scan the whole page. We cap output so an accidental
         match on a long-list dialog doesn't blow up the log.
+
+        Returns a short summary string the caller can stitch into the
+        ``FlowPortError`` it raises. That way the operator sees the
+        same evidence on the dashboard / task detail page that dev
+        sees in app.log — they don't have to guess that "Locator
+        timeout" means "your account locale isn't covered yet" or
+        ship a diagnostic bundle just to find out the visible labels.
         """
         if self._page is None:
-            return
+            return ""
         root = scope if scope is not None else self._page
         try:
             buttons = root.locator(
@@ -357,12 +364,16 @@ class PlaywrightFlowPort(FlowPort):
             )
             count = min(buttons.count(), 60)
         except Exception as exc:  # noqa: BLE001
+            msg = f"enumerate failed ({exc})"
             _LOG.warning(
-                "[selector-dump] %s: enumerate failed (%s); tried=%s",
-                context, exc, tried_selectors,
+                "[selector-dump] %s: %s; tried=%s",
+                context, msg, tried_selectors,
             )
-            return
+            return msg
         rows: list[str] = []
+        # Compact summary of just the visible labels — this is what the
+        # operator sees in the WS / task detail page, so keep it tight.
+        summary_labels: list[str] = []
         for i in range(count):
             try:
                 el = buttons.nth(i)
@@ -375,6 +386,9 @@ class PlaywrightFlowPort(FlowPort):
             if not text and not aria:
                 continue
             rows.append(f"  text={text[:80]!r} aria={aria[:80]!r}")
+            label = text or aria
+            if label and label not in summary_labels:
+                summary_labels.append(label[:40])
         _LOG.warning(
             "[selector-dump] %s: %d selector(s) failed, %d visible button(s) "
             "in scope:\n%s\ntried_selectors=%s",
@@ -382,6 +396,10 @@ class PlaywrightFlowPort(FlowPort):
             "\n".join(rows[:60]) if rows else "  (no visible buttons)",
             tried_selectors,
         )
+        # Return short summary for embedding in the FlowPortError.
+        if not summary_labels:
+            return "no visible buttons in scope"
+        return "visible buttons: " + " | ".join(summary_labels[:12])
 
     def _body_text(self) -> str:
         """Rendered-visible body text for phrase classification.
@@ -698,14 +716,15 @@ class PlaywrightFlowPort(FlowPort):
                 last_err = exc
                 continue
         if not clicked:
-            self._dump_visible_button_texts(
+            summary = self._dump_visible_button_texts(
                 context=f"prompt-attach {button_label!r}",
                 tried_selectors=button_selectors,
             )
             raise FlowPortError(
-                f"failed to click prompt-attach {button_label!r} for "
-                f"asset #{idx} ({asset.path}): no selector matched in "
-                f"{len(button_selectors)} candidate(s); last err: {last_err}"
+                f"找不到 prompt-attach {button_label!r} 按钮（账号 locale 可能"
+                f"未覆盖）— 已试 {len(button_selectors)} 种语言变体均超时。"
+                f"{summary}。请把这条信息发给开发，下次发版补上对应文本。"
+                f"asset #{idx} ({asset.path}); last err: {last_err}"
             )
 
         # 2. Wait for the picker dialog.
@@ -766,7 +785,7 @@ class PlaywrightFlowPort(FlowPort):
                     target_last_err = exc
                     continue
             if not target_clicked:
-                self._dump_visible_button_texts(
+                summary = self._dump_visible_button_texts(
                     context=f"prompt-attach upload target ({button_label!r})",
                     tried_selectors=sel_target,
                     scope=dialog,
@@ -776,9 +795,10 @@ class PlaywrightFlowPort(FlowPort):
                 except Exception:  # noqa: BLE001
                     pass
                 raise FlowPortError(
-                    f"prompt-attach upload failed via {button_label!r} for "
-                    f"asset #{idx} ({asset.path}): no upload-target selector "
-                    f"matched in {len(sel_target)} candidate(s); "
+                    f"找不到上传图片入口（账号 locale 可能未覆盖）— 已试"
+                    f" {len(sel_target)} 种语言变体均超时。{summary}。"
+                    f"请把这条信息发给开发，下次发版补上对应文本。"
+                    f"asset #{idx} via {button_label!r} ({asset.path}); "
                     f"last err: {target_last_err}"
                 )
             _LOG.info(

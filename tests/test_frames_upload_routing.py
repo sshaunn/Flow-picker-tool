@@ -116,7 +116,10 @@ def test_ingredients_routing_does_not_trigger_frames_branch():
     from app.worker.flow_port import FlowPortError
     port = _build_port_skeleton()
     assets = [_asset("a.png", "reference", 1)]
-    with pytest.raises(FlowPortError, match=r"prompt-attach '\+' for asset"):
+    # Worker now wraps the underlying error with a Chinese, locale-aware
+    # message — but ``'+'`` is still in there to distinguish ingredients
+    # from frames branches (Start / End would appear in the frames path).
+    with pytest.raises(FlowPortError, match=r"prompt-attach '\+'"):
         port.upload_source_assets(assets)
 
 

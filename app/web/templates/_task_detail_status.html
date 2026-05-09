@@ -84,8 +84,17 @@
         {% if friendly and friendly[1] %}
           <div class="mt-1 text-red-700">建议：{{ friendly[1] }}</div>
         {% endif %}
+        {# Show error_message at readable size on its own line so the
+           operator can see locale / forensic dumps without squinting.
+           Multi-line / long messages wrap; pre-wrap preserves the
+           "visible buttons: A | B | C" formatting from the worker. #}
+        {% if task.error_message and task.error_message != task.error_type %}
+        <div class="mt-2 text-red-700 whitespace-pre-wrap break-words">
+          {{ task.error_message }}
+        </div>
+        {% endif %}
         <div class="mt-1 text-red-500/70 text-[10px]" title="技术错误码（开发者排查用）">
-          {{ task.error_type }}{% if task.error_message and task.error_message != task.error_type %} · {{ task.error_message }}{% endif %}
+          {{ task.error_type }}
         </div>
       </dd>
     </div>
