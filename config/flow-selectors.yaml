@@ -101,22 +101,75 @@ selectors:
   # Flow routes the request through Veo (video model).
   prompt_attach_button: 'button[data-state]:has-text("add_2")'
   prompt_attach_dialog: '[role="dialog"][data-state="open"]'
-  prompt_attach_upload_target: 'text="Upload image"'
+
+  # ── Multilingual selector lists.
+  # Flow translates UI text based on Chrome's locale. Customer accounts
+  # span all of EAS / SEA, so a single "Upload image" / "Start" / "End"
+  # selector silently times out the moment the operator's account is on
+  # any non-English locale. Each list below covers the languages we've
+  # seen in customer logs PLUS the rest of EAS+SEA pre-emptively.
+  #
+  # Order: English first (still the most common), then Chinese variants,
+  # then SEA, then JA/KO. The adapter tries each in order; first match
+  # wins. On total failure it dumps every visible button's text into
+  # the log so an unknown locale can be added on the next pass.
+  #
+  # `text="..."` is Playwright's exact-match (case-insensitive) syntax.
+  # Quote variants matter: ``text="Start"`` differs from ``text=Start``.
+  # We keep the exact-match form to avoid "Start" matching "Restart".
+  #
+  # Source: Google's own translations of Material UI strings + Flow
+  # screenshots from customer diagnostic bundles.
+  prompt_attach_upload_target:
+    - 'text="Upload image"'             # en
+    - 'text="上传图片"'                   # zh-CN
+    - 'text="上傳圖片"'                   # zh-TW
+    - 'text="Tải lên hình ảnh"'          # vi (Vietnamese)
+    - 'text="Tải hình ảnh lên"'          # vi alternate
+    - 'text="อัปโหลดรูปภาพ"'              # th (Thai)
+    - 'text="Unggah gambar"'             # id (Indonesian)
+    - 'text="Muat naik imej"'            # ms (Malay)
+    - 'text="Mag-upload ng larawan"'     # tl/fil (Filipino)
+    - 'text="ဓာတ်ပုံတင်ရန်"'              # my (Burmese)
+    - 'text="បង្ហោះរូបភាព"'                # km (Khmer)
+    - 'text="ອັບໂຫລດຮູບພາບ"'             # lo (Lao)
+    - 'text="画像をアップロード"'          # ja
+    - 'text="이미지 업로드"'              # ko
 
   # Frames sub-tab variant: in Frames mode the "+" button is replaced
   # by two named slots, "Start" and "End", flanking a swap-arrow icon.
   # Each opens the same picker dialog as ingredients ("Upload image"),
   # so reuse ``prompt_attach_dialog`` + ``prompt_attach_upload_target``
   # for the inner flow.
-  #
-  # Selector uses Playwright's text-locator with quotes for exact-match
-  # (case-insensitive) so it works whether Flow renders the slot as
-  # ``<button>``, ``<div role="button">``, or a wrapper around a span.
-  # ``button:text-is(...)`` was too strict — failed empirically when
-  # Flow wrapped the label in an inner element rather than putting it
-  # directly inside ``<button>``.
-  prompt_attach_button_start: 'text="Start"'
-  prompt_attach_button_end: 'text="End"'
+  prompt_attach_button_start:
+    - 'text="Start"'                     # en
+    - 'text="开始"'                       # zh-CN
+    - 'text="開始"'                       # zh-TW / ja
+    - 'text="Bắt đầu"'                    # vi
+    - 'text="เริ่มต้น"'                    # th
+    - 'text="เริ่ม"'                       # th alternate
+    - 'text="Mulai"'                      # id
+    - 'text="Mula"'                       # ms
+    - 'text="Simulan"'                    # tl/fil
+    - 'text="စတင်"'                       # my
+    - 'text="ចាប់ផ្ដើម"'                   # km
+    - 'text="ເລີ່ມຕົ້ນ"'                   # lo
+    - 'text="시작"'                       # ko
+  prompt_attach_button_end:
+    - 'text="End"'                       # en
+    - 'text="结束"'                       # zh-CN
+    - 'text="結束"'                       # zh-TW
+    - 'text="Kết thúc"'                   # vi
+    - 'text="สิ้นสุด"'                     # th
+    - 'text="Akhiri"'                     # id
+    - 'text="Selesai"'                    # id alternate
+    - 'text="Tamat"'                      # ms
+    - 'text="Tapusin"'                    # tl/fil
+    - 'text="ပြီးဆုံး"'                    # my
+    - 'text="បញ្ចប់"'                      # km
+    - 'text="ສິ້ນສຸດ"'                     # lo
+    - 'text="終了"'                       # ja
+    - 'text="종료"'                       # ko
 
   # The "Create" button with the arrow_forward Material Symbol.
   # The other on-page "Create" is the model-picker (icon: add_2).

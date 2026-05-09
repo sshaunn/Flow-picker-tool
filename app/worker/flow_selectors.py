@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 
 class StatePhrases(BaseModel):
@@ -48,14 +48,36 @@ class Selectors(BaseModel):
     # Ingredients reference uploads).
     prompt_attach_button: str = ""
     prompt_attach_dialog: str = ""
-    prompt_attach_upload_target: str = ""
+    # ``prompt_attach_upload_target`` and the two frame triggers are
+    # ``list[str]`` so we can carry multilingual fallbacks (Flow's UI is
+    # translated based on Chrome locale — Vietnamese / Thai / etc.
+    # accounts get localized button text and a single English-only
+    # selector silently times out). The adapter tries each in order;
+    # the first to attach wins. On total failure it dumps every visible
+    # button's text + aria-label to the log so a missing language can
+    # be added. Backward compat: a plain string still works (validator
+    # below promotes it to a single-entry list).
+    prompt_attach_upload_target: list[str] = Field(default_factory=list)
 
     # Frames sub-tab variants of the trigger button. Same dialog + upload
     # target as ingredients; only the trigger differs (two slots labelled
     # ``Start`` and ``End`` instead of a single ``+``). Both empty falls
     # back to ingredients-style upload.
-    prompt_attach_button_start: str = ""
-    prompt_attach_button_end: str = ""
+    prompt_attach_button_start: list[str] = Field(default_factory=list)
+    prompt_attach_button_end: list[str] = Field(default_factory=list)
+
+    @field_validator(
+        "prompt_attach_upload_target",
+        "prompt_attach_button_start",
+        "prompt_attach_button_end",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_to_list(cls, v):
+        """Accept legacy single-string yaml in the same field."""
+        if isinstance(v, str):
+            return [v] if v else []
+        return v
 
     # Legacy fields — retained only so older flow-selectors.yaml files keep
     # validating. The adapter does not use them.

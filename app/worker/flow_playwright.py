@@ -333,6 +333,56 @@ class PlaywrightFlowPort(FlowPort):
 
     # --- state classification --------------------------------------------
 
+    def _dump_visible_button_texts(
+        self,
+        *,
+        context: str,
+        tried_selectors: list[str],
+        scope=None,
+    ) -> None:
+        """Forensic helper: when a multilingual selector list fails to
+        match, dump every visible ``button``'s text + aria-label so the
+        next bundle tells us which locale string we missed.
+
+        ``scope`` is an optional Locator (e.g. an open dialog); if not
+        given we scan the whole page. We cap output so an accidental
+        match on a long-list dialog doesn't blow up the log.
+        """
+        if self._page is None:
+            return
+        root = scope if scope is not None else self._page
+        try:
+            buttons = root.locator(
+                'button, [role="button"], [role="menuitem"], [role="tab"]'
+            )
+            count = min(buttons.count(), 60)
+        except Exception as exc:  # noqa: BLE001
+            _LOG.warning(
+                "[selector-dump] %s: enumerate failed (%s); tried=%s",
+                context, exc, tried_selectors,
+            )
+            return
+        rows: list[str] = []
+        for i in range(count):
+            try:
+                el = buttons.nth(i)
+                if not el.is_visible(timeout=200):
+                    continue
+                text = (el.inner_text(timeout=200) or "").strip().replace("\n", " ⏎ ")
+                aria = el.get_attribute("aria-label") or ""
+            except Exception:  # noqa: BLE001
+                continue
+            if not text and not aria:
+                continue
+            rows.append(f"  text={text[:80]!r} aria={aria[:80]!r}")
+        _LOG.warning(
+            "[selector-dump] %s: %d selector(s) failed, %d visible button(s) "
+            "in scope:\n%s\ntried_selectors=%s",
+            context, len(tried_selectors), len(rows),
+            "\n".join(rows[:60]) if rows else "  (no visible buttons)",
+            tried_selectors,
+        )
+
     def _body_text(self) -> str:
         """Rendered-visible body text for phrase classification.
 
@@ -522,10 +572,10 @@ class PlaywrightFlowPort(FlowPort):
         self,
         assets: list[SourceAsset],
         *,
-        sel_start: str,
-        sel_end: str,
+        sel_start: list[str],
+        sel_end: list[str],
         sel_dlg: str,
-        sel_target: str,
+        sel_target: list[str],
     ) -> None:
         """Route assets to Start / End slots by ``kind`` and upload each
         through the same dialog flow as ingredients.
@@ -559,17 +609,17 @@ class PlaywrightFlowPort(FlowPort):
                 "frames mode requires at least one of first_frame / last_frame"
             )
 
-        sequence: list[tuple[str, str, SourceAsset]] = []
+        sequence: list[tuple[list[str], str, SourceAsset]] = []
         if first is not None:
             sequence.append((sel_start, "Start", first))
         if last is not None:
             sequence.append((sel_end, "End", last))
 
-        for idx, (button_sel, label, asset) in enumerate(sequence, start=1):
+        for idx, (button_selectors, label, asset) in enumerate(sequence, start=1):
             self._upload_one_asset(
                 asset,
                 idx=idx, total=len(sequence),
-                button_sel=button_sel, button_label=label,
+                button_selectors=button_selectors, button_label=label,
                 sel_dlg=sel_dlg, sel_target=sel_target,
                 settle_after=(idx < len(sequence)),
             )
@@ -580,13 +630,16 @@ class PlaywrightFlowPort(FlowPort):
         *,
         sel_btn: str,
         sel_dlg: str,
-        sel_target: str,
+        sel_target: list[str],
     ) -> None:
+        # Ingredients ``+`` trigger is icon-text (``add_2``), so it stays
+        # a single str — wrap as a single-item list for the unified
+        # multi-selector code path.
         for idx, asset in enumerate(assets, start=1):
             self._upload_one_asset(
                 asset,
                 idx=idx, total=len(assets),
-                button_sel=sel_btn, button_label="+",
+                button_selectors=[sel_btn], button_label="+",
                 sel_dlg=sel_dlg, sel_target=sel_target,
                 settle_after=(idx < len(assets)),
             )
@@ -597,10 +650,10 @@ class PlaywrightFlowPort(FlowPort):
         *,
         idx: int,
         total: int,
-        button_sel: str,
+        button_selectors: list[str],
         button_label: str,
         sel_dlg: str,
-        sel_target: str,
+        sel_target: list[str],
         settle_after: bool,
     ) -> None:
         """Upload a single asset through the click-button → dialog →
@@ -610,22 +663,50 @@ class PlaywrightFlowPort(FlowPort):
         ``End`` triggers). Both UIs open the same picker dialog; only
         the trigger selector + label differ. ``button_label`` is a
         human-readable token used in error / log messages.
+
+        ``button_selectors`` and ``sel_target`` are both **lists** so
+        Flow's locale-translated UI text can be matched in any of the
+        languages we've enumerated in flow-selectors.yaml. We try each
+        selector in order; the first to produce a clickable element
+        wins. On total failure the dialog (if open) gets a forensic
+        button-text dump to the log so a missing locale can be added
+        on the next bundle.
         """
         self._dismiss_popups()
 
-        # 1. Click the trigger to open the picker.
-        try:
-            trigger = self._page.locator(button_sel).first
-            trigger.wait_for(
-                state="attached",
-                timeout=self.page_action_timeout_sec * 1000,
+        # 1. Click the trigger to open the picker. We probe each
+        # selector with a short timeout (so an English-only run on a
+        # zh-CN account fails fast on the first selector and tries the
+        # 中文 one ~3s later, instead of waiting 60s × N languages).
+        per_sel_timeout_ms = max(
+            3000, (self.page_action_timeout_sec * 1000) // max(1, len(button_selectors)),
+        )
+        last_err: Exception | None = None
+        clicked = False
+        for sel in button_selectors:
+            try:
+                trigger = self._page.locator(sel).first
+                trigger.wait_for(state="attached", timeout=per_sel_timeout_ms)
+                trigger.click()
+                clicked = True
+                _LOG.debug(
+                    "prompt-attach %s: hit selector %s for asset #%d",
+                    button_label, sel, idx,
+                )
+                break
+            except Exception as exc:
+                last_err = exc
+                continue
+        if not clicked:
+            self._dump_visible_button_texts(
+                context=f"prompt-attach {button_label!r}",
+                tried_selectors=button_selectors,
             )
-            trigger.click()
-        except Exception as exc:
             raise FlowPortError(
                 f"failed to click prompt-attach {button_label!r} for "
-                f"asset #{idx} ({asset.path}): {exc}"
-            ) from exc
+                f"asset #{idx} ({asset.path}): no selector matched in "
+                f"{len(button_selectors)} candidate(s); last err: {last_err}"
+            )
 
         # 2. Wait for the picker dialog.
         try:
@@ -667,20 +748,39 @@ class PlaywrightFlowPort(FlowPort):
                 )
 
         if not attached_via_reuse:
-            try:
-                upload_target = dialog.locator(sel_target).first
-                with self._page.expect_file_chooser(timeout=15_000) as fc_info:
-                    upload_target.click()
-                fc_info.value.set_files(str(asset.path))
-            except Exception as exc:
+            target_clicked = False
+            target_last_err: Exception | None = None
+            for sel in sel_target:
+                try:
+                    upload_target = dialog.locator(sel).first
+                    with self._page.expect_file_chooser(timeout=8_000) as fc_info:
+                        upload_target.click(timeout=4_000)
+                    fc_info.value.set_files(str(asset.path))
+                    target_clicked = True
+                    _LOG.debug(
+                        "prompt-attach upload target hit selector %s for asset #%d",
+                        sel, idx,
+                    )
+                    break
+                except Exception as exc:
+                    target_last_err = exc
+                    continue
+            if not target_clicked:
+                self._dump_visible_button_texts(
+                    context=f"prompt-attach upload target ({button_label!r})",
+                    tried_selectors=sel_target,
+                    scope=dialog,
+                )
                 try:
                     self._page.keyboard.press("Escape")
                 except Exception:  # noqa: BLE001
                     pass
                 raise FlowPortError(
                     f"prompt-attach upload failed via {button_label!r} for "
-                    f"asset #{idx} ({asset.path}): {exc}"
-                ) from exc
+                    f"asset #{idx} ({asset.path}): no upload-target selector "
+                    f"matched in {len(sel_target)} candidate(s); "
+                    f"last err: {target_last_err}"
+                )
             _LOG.info(
                 "uploaded asset %d/%d via %s (fresh upload) kind=%s path=%s",
                 idx, total, button_label, asset.kind, asset.path,
