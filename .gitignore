@@ -76,3 +76,35 @@ FlowHarvester-bundle.zip
 *.spec.bak
 
 docs/config/workstations.yaml.bak
+
+# Local config / asset backups
+config/*.bak
+config/*.backup
+
+# Developer-local docs (drafts, diagnostic dumps from customer machines,
+# screenshots, design notes, …). Tracked docs stay tracked because git
+# never ignores already-indexed paths — anything new under docs/ is
+# treated as private working-tree noise unless explicitly un-ignored
+# below.
+docs/*
+!docs/customer-install-windows.md
+!docs/customer-manual.md
+!docs/使用手册.txt
+!docs/安装说明.txt
+# Don't accidentally swallow nested folders we *do* want tracked in the
+# future — by listing the dirs we plan to keep here, the tracking is
+# an active choice rather than a `docs/*` accident.
+!docs/.gitkeep
+
+# Diagnostic bundles + their unzipped trees
+docs/diagnostic_*.zip
+docs/diagnostic_*/
+
+# V2 spike artefacts live on the v2-spike branch — on main they're
+# only noise (npm node_modules + vite dist + the source tree itself
+# all show up as untracked when you ``git checkout main`` after a
+# spike build). On v2-spike, the more-specific
+# ``extension/node_modules/`` etc. lines lower the surface to just
+# the build output.
+extension/
+scripts/
