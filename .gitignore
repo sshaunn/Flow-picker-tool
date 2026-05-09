@@ -84,3 +84,27 @@ extension/.vite/
 extension/pnpm-lock.yaml
 extension/package-lock.json
 extension/yarn.lock
+
+# Local config / asset backups
+config/*.bak
+config/*.backup
+
+# Developer-local docs (drafts, diagnostic dumps from customer machines,
+# screenshots, design notes, …). Tracked docs (customer-install-windows.md
+# / customer-manual.md / 使用手册.txt / 安装说明.txt / V2 design /
+# challenges / fragility-suite) stay tracked because git never ignores
+# already-indexed paths — anything new under docs/ is treated as private
+# working-tree noise unless explicitly un-ignored.
+docs/*
+!docs/customer-install-windows.md
+!docs/customer-manual.md
+!docs/使用手册.txt
+!docs/安装说明.txt
+!docs/v1-fragility-regression-suite.md
+!docs/v2-architecture-design.md
+!docs/v2-architecture-challenges.md
+!docs/.gitkeep
+
+# Diagnostic bundles + their unzipped trees
+docs/diagnostic_*.zip
+docs/diagnostic_*/
