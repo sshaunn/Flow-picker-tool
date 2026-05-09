@@ -244,16 +244,10 @@ class LoginSession:
                 no_viewport=True,
                 chromium_sandbox=True,
             )
-            # Force English Flow UI — see same hook in flow_playwright.
-            # Doing it on the login session too means the operator sees
-            # Flow's "Create new project" / "Open project" UI in English
-            # (matches our project-URL regex + onboarding wording in the
-            # operator manual). And critically: when capture writes the
-            # URL into ``flow_project_url`` it stores the en-prefixed
-            # path (``/fx/tools/flow/...`` instead of ``/fx/vi/...``),
-            # which is what the worker session re-uses — so the worker
-            # also lands on English by default even before its own
-            # route hook runs.
+            # Same defensive Accept-Language rewrite as flow_playwright.
+            # Empirically Flow ignores it (account preferred language
+            # wins); kept as a zero-cost safety net for unset prefs.
+            # Real fix is the post-capture language-settings flow below.
             try:
                 ctx.route(
                     "**/*labs.google*",
@@ -506,21 +500,31 @@ class LoginSession:
                 return
             if self._primary_label_is_english(page):
                 self._log.info(
-                    "login %s language: operator changed primary to "
-                    "English (US) — saving …", self.workstation_id,
-                )
-                # Give the save round-trip a moment to commit before the
-                # caller closes the chrome window. ``networkidle`` covers
-                # both the click POST and any redirect.
-                try:
-                    page.wait_for_load_state("networkidle", timeout=8_000)
-                except Exception:  # noqa: BLE001
-                    pass
-                self._log.info(
-                    "login %s language: change confirmed",
+                    "login %s language: detected primary flipped to "
+                    "English (US) — verifying server-side persistence …",
                     self.workstation_id,
                 )
-                return
+                if self._verify_language_persisted(page):
+                    self._log.info(
+                        "login %s language: change confirmed (reload "
+                        "shows English (US) as primary)",
+                        self.workstation_id,
+                    )
+                    return
+                # Verification failed: the picker may have done a local
+                # optimistic update without the operator clicking Save,
+                # OR Google rejected the save. Either way, keep polling
+                # until either it sticks (operator finishes Save) or we
+                # hit the deadline.
+                self._log.info(
+                    "login %s language: client-side flip not yet "
+                    "persisted — operator still needs to click Save",
+                    self.workstation_id,
+                )
+                # Brief sleep so we don't tight-loop on the same DOM
+                # state the next 1.5s tick.
+                time.sleep(2.0)
+                continue
             now = time.monotonic()
             if now - last_log_at >= 30.0:
                 self._log.info(
@@ -549,6 +553,61 @@ class LoginSession:
 
     def _primary_label_is_english(self, page) -> bool:
         return "English (United States)" in self._read_primary_label(page)
+
+    def _verify_language_persisted(self, page) -> bool:
+        """Reload the language settings page and re-check the primary
+        ``aria-label``. This is the only way to distinguish:
+
+          * Operator clicked English in the picker AND clicked Save →
+            page reloads from server with new primary, our re-read
+            still shows English (US). PERSISTED.
+          * Operator clicked English in the picker but didn't click
+            Save / closed the dialog → React's optimistic local update
+            briefly showed English in the list, but server still has
+            the old language. After reload the primary reverts.
+            NOT PERSISTED.
+          * Google rejected the save server-side → same as above.
+
+        First wait for ``networkidle`` so any in-flight save POST has
+        a chance to commit before we reload. Then ``page.reload()``,
+        wait for the language list to mount, and read the aria-label.
+        """
+        try:
+            page.wait_for_load_state("networkidle", timeout=8_000)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            page.reload(wait_until="domcontentloaded", timeout=15_000)
+        except Exception as exc:  # noqa: BLE001
+            self._log.warning(
+                "login %s language: verify reload failed: %s",
+                self.workstation_id, exc,
+            )
+            return False
+        try:
+            page.wait_for_load_state("networkidle", timeout=8_000)
+        except Exception:  # noqa: BLE001
+            pass
+        # The Edit-language buttons mount asynchronously after the
+        # initial DOM load; give the locator a few seconds to attach
+        # before reading the aria-label.
+        try:
+            page.locator('[aria-label^="Edit language:"]').first.wait_for(
+                state="attached", timeout=8_000,
+            )
+        except Exception:  # noqa: BLE001
+            self._log.warning(
+                "login %s language: post-reload Edit-language button "
+                "didn't mount in 8s; treating as not-persisted",
+                self.workstation_id,
+            )
+            return False
+        post_reload_label = self._read_primary_label(page)
+        self._log.info(
+            "login %s language: post-reload primary = %r",
+            self.workstation_id, post_reload_label,
+        )
+        return "English (United States)" in post_reload_label
 
     def _wait_for_project_ready(self, pages, captured_url: str) -> None:
         """Best-effort barrier between "URL matched" and "browser closes".

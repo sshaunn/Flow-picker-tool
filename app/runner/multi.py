@@ -101,6 +101,20 @@ def _build_flow_port(
     if use_mock:
         plans = mock_round_plans if mock_round_plans is not None else [MockRoundPlan.success(4)]
         return MockFlowPort(round_plans=plans, initial_state=mock_initial_state)
+
+    # V2 spike: route page actions through the chrome extension WS RPC
+    # bridge instead of patchright. Same FlowPort surface, so V1's
+    # execute_task / strike / multi-round logic stays untouched.
+    import os as _os
+    if _os.environ.get("FLOW_HARVESTER_USE_EXTENSION") == "1":
+        from app.worker.flow_extension_port import ExtensionFlowPort
+        return ExtensionFlowPort(
+            ws_id=workstation.id,
+            project_url=workstation.flow_project_url,
+            page_action_timeout_sec=config.generation.page_action_timeout_sec,
+            flow_mode_spec=_merge_flow_mode(workstation.flow_mode, task_flow_mode),
+        )
+
     try:
         from app.worker.flow_playwright import PlaywrightFlowPort  # type: ignore
     except ImportError as exc:

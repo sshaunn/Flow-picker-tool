@@ -66,6 +66,21 @@ def _flow_port_factory(
     if use_mock:
         plans = mock_round_plans if mock_round_plans is not None else [MockRoundPlan.success(4)]
         return MockFlowPort(round_plans=plans, initial_state=mock_initial_state)
+
+    from app.runner.multi import _merge_flow_mode
+
+    # V2 spike: same opt-in branch as runner.multi — see that file for
+    # full notes. Single-WS path uses workstation.id as the ws_id too.
+    import os as _os
+    if _os.environ.get("FLOW_HARVESTER_USE_EXTENSION") == "1":
+        from app.worker.flow_extension_port import ExtensionFlowPort
+        return ExtensionFlowPort(
+            ws_id=workstation.id,
+            project_url=workstation.flow_project_url,
+            page_action_timeout_sec=config.generation.page_action_timeout_sec,
+            flow_mode_spec=_merge_flow_mode(workstation.flow_mode, task_flow_mode),
+        )
+
     # Lazy import so the package is usable without patchright installed
     # for ``--mock`` runs / tests.
     try:
@@ -74,7 +89,6 @@ def _flow_port_factory(
         raise RuntimeError(
             "FlowPort not available. Install patchright or use --mock."
         ) from exc
-    from app.runner.multi import _merge_flow_mode
     return PlaywrightFlowPort(
         entry_url=config.flow.entry_url,
         profile_path=Path(workstation.browser_profile_path),

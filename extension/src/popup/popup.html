@@ -1,0 +1,127 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Flow Harvester (spike)</title>
+    <style>
+      body {
+        font-family: -apple-system, system-ui, "Helvetica Neue", sans-serif;
+        font-size: 13px;
+        margin: 0;
+        padding: 12px 14px;
+        width: 300px;
+        color: #1f2937;
+      }
+      h1 {
+        font-size: 14px;
+        margin: 0 0 10px;
+        color: #0f172a;
+      }
+      .row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 6px;
+      }
+      .label {
+        color: #6b7280;
+      }
+      .value {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      .pill {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+      }
+      .pill.online {
+        background: #d1fae5;
+        color: #047857;
+      }
+      .pill.offline {
+        background: #fee2e2;
+        color: #b91c1c;
+      }
+      hr {
+        border: 0;
+        border-top: 1px solid #e5e7eb;
+        margin: 10px 0;
+      }
+      .setup label {
+        color: #6b7280;
+        display: block;
+        margin-bottom: 4px;
+      }
+      .setup-row {
+        display: flex;
+        gap: 6px;
+      }
+      .setup input {
+        flex: 1;
+        padding: 5px 8px;
+        border: 1px solid #d1d5db;
+        border-radius: 5px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+      }
+      .setup button {
+        padding: 5px 10px;
+        border: 0;
+        border-radius: 5px;
+        background: #2563eb;
+        color: white;
+        cursor: pointer;
+        font-size: 12px;
+      }
+      .setup button:disabled {
+        background: #9ca3af;
+        cursor: not-allowed;
+      }
+      .saved {
+        color: #047857;
+        font-size: 11px;
+        margin-top: 4px;
+        min-height: 14px;
+      }
+      .hint {
+        margin-top: 10px;
+        color: #6b7280;
+        font-size: 11px;
+        line-height: 1.4;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Flow Harvester (spike)</h1>
+    <div class="row">
+      <span class="label">Workstation</span>
+      <span class="value" id="ws-id">—</span>
+    </div>
+    <div class="row">
+      <span class="label">Co-Pilot</span>
+      <span class="pill offline" id="status">checking…</span>
+    </div>
+    <div class="row">
+      <span class="label">Refreshed</span>
+      <span class="value" id="hb">—</span>
+    </div>
+
+    <hr />
+
+    <div class="setup">
+      <label for="ws-id-input">重命名 Workstation（这台 chrome profile 专属）</label>
+      <div class="setup-row">
+        <input type="text" id="ws-id-input" placeholder="如 WS_A / Account-foo" maxlength="64" />
+        <button id="ws-id-save">保存并重连</button>
+      </div>
+      <div class="saved" id="saved-msg"></div>
+    </div>
+
+    <p class="hint">
+      每个 chrome profile 装一份扩展即可独立连中控。
+      改 ID 后 service worker 会自动重连。
+    </p>
+    <script src="popup.js" type="module"></script>
+  </body>
+</html>

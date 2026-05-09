@@ -180,19 +180,13 @@ class PlaywrightFlowPort(FlowPort):
 
         self._pw = sync_playwright().start()
         try:
-            # Patchright recommends minimal customisation: just channel="chrome"
-            # in non-headless mode without custom UA / args / init scripts.
-            # It handles its own anti-detection (Runtime.enable leak,
-            # ExecutionContext isolation, AutomationControlled flag) and
-            # piling our own stealth on top creates conflicts that
-            # caused ERR_CONNECTION_CLOSED in earlier attempts.
-            # Patchright official recommendation: channel="chrome" +
-            # headless=False + no_viewport=True + no custom UA / args.
-            # ``no_viewport`` lets Chrome use its default window size
-            # which is itself a fingerprint signal — fixed 1280x800
-            # viewport is suspicious because real users have varied
-            # window sizes. Drop ``slow_mo`` and ``accept_downloads``
-            # too — accept_downloads stays True via Playwright default.
+            # Patchright README "Best Practice" §162-170: channel="chrome"
+            # + headless=False + no_viewport=True + no custom UA / args /
+            # init scripts. Patchright handles its own anti-detection
+            # (Runtime.enable, ExecutionContext, AutomationControlled);
+            # adding our own stealth conflicts. ``no_viewport`` lets
+            # Chrome use its default window size — fixed 1280x800 is
+            # itself a fingerprint signal.
             self._context = self._pw.chromium.launch_persistent_context(
                 user_data_dir=str(self.profile_path),
                 channel="chrome",
@@ -204,15 +198,12 @@ class PlaywrightFlowPort(FlowPort):
             self._teardown_pw()
             raise FlowPortError(f"failed to launch browser: {exc}") from exc
 
-        # Force English Flow UI by rewriting Accept-Language for every
-        # request to *.labs.google. Flow's React app picks translations
-        # based on this header, so customer accounts whose Chrome locale
-        # is Vietnamese / Thai / Khmer / etc. would otherwise render
-        # ``Tạo`` / ``สร้าง`` / ``បង្កើត`` instead of ``Create`` and our
-        # text-based selectors miss. This is request-level rewrite (not
-        # adding a custom header), and the navigator.language fingerprint
-        # stays untouched — same situation a real VPN / corporate-policy
-        # user produces, so it shouldn't tip Google's anti-bot.
+        # Defensive Accept-Language rewrite. Empirically (2026-05-09)
+        # Flow ignores this header and renders translations based on
+        # the Google account's preferred-language field instead — the
+        # actual fix is the operator-driven account-language switch in
+        # ``LoginSession`` post-capture. We keep the hook anyway as a
+        # zero-cost safety net for accounts whose preference is unset.
         try:
             self._context.route(
                 "**/*labs.google*",
@@ -1653,20 +1644,27 @@ class PlaywrightFlowPort(FlowPort):
                         "(remaining budget=%d) — re-clicking Create",
                         retry_budget,
                     )
-                    try:
-                        # Re-trigger generation in the same round. Don't
-                        # re-upload assets — the prompt + chips are
-                        # still attached.
-                        self._page.locator(
-                            self._cfg.selectors.generate_button
-                        ).first.click(timeout=5_000)
-                        # Reset stability tracking — the failed candidates
-                        # (if any) shouldn't count against the new attempt.
+                    # Re-trigger generation in the same round. Don't
+                    # re-upload assets — the prompt + chips are still
+                    # attached. ``generate_button`` is a list[str] of
+                    # locale variants; iterate same as the initial
+                    # trigger_generation click.
+                    sel_list = self._cfg.selectors.generate_button
+                    re_clicked = False
+                    for sel in sel_list:
+                        try:
+                            self._page.locator(sel).first.click(timeout=4_000)
+                            re_clicked = True
+                            break
+                        except Exception:  # noqa: BLE001
+                            continue
+                    if re_clicked:
                         last_new = []
                         last_change_time = 0.0
-                    except Exception as exc:  # noqa: BLE001
+                    else:
                         _LOG.warning(
-                            "[round/retry] re-click Create failed: %s", exc
+                            "[round/retry] re-click Create failed across "
+                            "%d locale variants", len(sel_list),
                         )
                     time.sleep(2.0)
                     continue

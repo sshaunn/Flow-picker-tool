@@ -76,3 +76,11 @@ FlowHarvester-bundle.zip
 *.spec.bak
 
 docs/config/workstations.yaml.bak
+
+# V2 extension (spike) — node toolchain artifacts
+extension/node_modules/
+extension/dist/
+extension/.vite/
+extension/pnpm-lock.yaml
+extension/package-lock.json
+extension/yarn.lock

@@ -10,6 +10,7 @@ the customer adds at least one WS via the form.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -87,6 +88,63 @@ def _make_lifespan(*, auto_start_daemon: bool):
                      ws_count)
         elif ws_count == 0:
             log.info("no workstations in DB; scheduler idle until POST /api/workstations")
+
+        # V2 spike: hand the running asyncio loop to ExtensionFlowPort so
+        # worker threads can bridge into the WS dispatcher via
+        # run_coroutine_threadsafe. Only takes effect when both spike
+        # flags are set; without them V1 production paths run unchanged.
+        import os as _os
+        spike_mounted = _os.environ.get("FLOW_HARVESTER_SPIKE_EXTENSION") == "1"
+        use_extension = _os.environ.get("FLOW_HARVESTER_USE_EXTENSION") == "1"
+        log.info(
+            "[spike] flags: FLOW_HARVESTER_SPIKE_EXTENSION=%s FLOW_HARVESTER_USE_EXTENSION=%s",
+            "1" if spike_mounted else "0 (NOT SET)",
+            "1" if use_extension else "0 (NOT SET)",
+        )
+        if use_extension and not spike_mounted:
+            log.warning(
+                "[spike] FLOW_HARVESTER_USE_EXTENSION is on but FLOW_HARVESTER_SPIKE_EXTENSION is OFF "
+                "— the WS endpoint /ws/extension/{ws_id} is NOT mounted, so the extension can't "
+                "register and every RPC will fail with 'workstation X not connected'. Set both to 1."
+            )
+        if spike_mounted and use_extension:
+            from app.worker.flow_extension_port import set_runtime_loop as _set_loop
+            _set_loop(asyncio.get_running_loop())
+            log.info("[spike] ExtensionFlowPort runtime loop registered")
+
+        # V2 spike file logging — V1's ``app/utils/logging.py`` only
+        # attaches FileHandlers to ``flow_harvester.scheduler`` and
+        # ``flow_harvester.worker.<id>``. Spike-only loggers
+        # (``flow_harvester.spike.*`` / ``flow_harvester.worker.extension_port``)
+        # would otherwise only land on stderr — which I can't see when
+        # diagnosing the customer's run after the fact. Funnel them to
+        # ``logs/spike-extension.log`` whenever either spike flag is on.
+        if spike_mounted or use_extension:
+            spike_log_path = app_paths.logs_dir() / "spike-extension.log"
+            spike_log_path.parent.mkdir(parents=True, exist_ok=True)
+            spike_handler = logging.FileHandler(str(spike_log_path), encoding="utf-8")
+            spike_handler.setLevel(logging.DEBUG)
+            spike_handler.setFormatter(
+                logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+            )
+            spike_handler._flow_harvester_spike = True  # type: ignore[attr-defined]
+            # Attach to parent loggers only — children (e.g.
+            # ``flow_harvester.spike.extension_ws``) propagate up so they
+            # don't need their own handler. Adding to both parent and
+            # child duplicates every log line, which is what the early
+            # spike-extension.log was suffering from.
+            for name in (
+                "flow_harvester.spike",
+                "flow_harvester.worker.extension_port",
+                "flow_harvester.web",
+            ):
+                lg = logging.getLogger(name)
+                # Idempotent: don't double-attach on multiple lifespan boots.
+                if not any(getattr(h, "_flow_harvester_spike", False) for h in lg.handlers):
+                    lg.addHandler(spike_handler)
+                    lg.setLevel(logging.DEBUG)
+            log.info("[spike] file logger → %s", spike_log_path)
+
         try:
             yield
         finally:
@@ -142,6 +200,16 @@ def create_app(
     app.include_router(mode_routes.router)
     app.include_router(diagnostics_routes.router)
     app.include_router(tunnel_routes.router)
+
+    # V2 extension spike — only mounted when explicitly enabled. Default
+    # off so V1 production behaviour is bit-identical.
+    import os as _os
+    if _os.environ.get("FLOW_HARVESTER_SPIKE_EXTENSION") == "1":
+        from app.web.routes import extension_ws as _extension_ws_routes
+        app.include_router(_extension_ws_routes.router)
+        logging.getLogger("flow_harvester.web").info(
+            "[spike] V2 extension WS routes mounted (FLOW_HARVESTER_SPIKE_EXTENSION=1)"
+        )
 
     # Make the friendly-error helpers callable from any Jinja2 template.
     from app.web import messages as _messages
