@@ -35,7 +35,11 @@ class StatePhrases(BaseModel):
 class Selectors(BaseModel):
     upload_button: str
     prompt_input: str
-    generate_button: str
+    # ``generate_button`` is the "Create" submit button. It's another
+    # translated label so we keep a multilingual list (same machinery
+    # as the prompt-attach selectors). Single-string yaml still works
+    # via the validator below.
+    generate_button: list[str] = Field(default_factory=list)
     candidate_items: str
     # Regex on a candidate's ``src`` attribute to confirm it really is a
     # generated media URL (not a UI thumbnail / decorative video). Default
@@ -70,6 +74,7 @@ class Selectors(BaseModel):
         "prompt_attach_upload_target",
         "prompt_attach_button_start",
         "prompt_attach_button_end",
+        "generate_button",
         mode="before",
     )
     @classmethod

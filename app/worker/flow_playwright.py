@@ -1485,27 +1485,63 @@ class PlaywrightFlowPort(FlowPort):
                 (state.get("parent_3") or {}).get("img_count", 0),
                 ed.get("text_preview", ""),
             )
-        sel = self._cfg.selectors.generate_button
-        try:
-            btn = self._page.locator(sel).first
-            # Move the mouse to the button via several intermediate
-            # steps before clicking. Default ``.click()`` does an
-            # instant move + click, which is bot-shaped — real users
-            # generate a continuous mousemove stream as their cursor
-            # crosses the page. Patchright's stealth handles flag-
-            # level signals; behavior-level signals like this we have
-            # to fake ourselves.
+        sel_list = self._cfg.selectors.generate_button
+        if not sel_list:
+            raise FlowPortError(
+                "generate_button selector list is empty — check "
+                "config/flow-selectors.yaml"
+            )
+        # Same multi-selector probe as prompt-attach: try icon-only +
+        # each locale variant with a fast per-selector timeout so we
+        # don't burn 60s on a single language miss. Real customer
+        # bug, see local 2026-05-09 12:35 — Vietnamese chrome rendered
+        # ``Create`` as ``Tạo`` and the single English-only locator
+        # timed out the whole 60s waiting for ``Create``.
+        per_sel_timeout_ms = max(
+            3000,
+            (self.page_action_timeout_sec * 1000) // max(1, len(sel_list)),
+        )
+        last_err: Exception | None = None
+        clicked = False
+        for sel in sel_list:
             try:
-                box = btn.bounding_box()
-                if box is not None:
-                    target_x = box["x"] + box["width"] / 2
-                    target_y = box["y"] + box["height"] / 2
-                    self._page.mouse.move(target_x, target_y, steps=15)
-            except Exception:  # noqa: BLE001 — best-effort
-                pass
-            btn.click(delay=random.randint(40, 120))
-        except Exception as exc:
-            raise FlowPortError(f"generate click failed: {exc}") from exc
+                btn = self._page.locator(sel).first
+                # Wait separately so a non-matching selector fails fast
+                # without burning the click timeout's budget.
+                btn.wait_for(state="attached", timeout=per_sel_timeout_ms)
+                # Move the mouse to the button via several intermediate
+                # steps before clicking. Default ``.click()`` does an
+                # instant move + click, which is bot-shaped — real users
+                # generate a continuous mousemove stream as their cursor
+                # crosses the page. Patchright's stealth handles flag-
+                # level signals; behavior-level signals like this we have
+                # to fake ourselves.
+                try:
+                    box = btn.bounding_box()
+                    if box is not None:
+                        target_x = box["x"] + box["width"] / 2
+                        target_y = box["y"] + box["height"] / 2
+                        self._page.mouse.move(target_x, target_y, steps=15)
+                except Exception:  # noqa: BLE001 — best-effort
+                    pass
+                btn.click(delay=random.randint(40, 120), timeout=per_sel_timeout_ms)
+                clicked = True
+                _LOG.debug("generate_button: hit selector %s", sel)
+                break
+            except Exception as exc:
+                last_err = exc
+                continue
+        if not clicked:
+            summary = self._dump_visible_button_texts(
+                context="generate_button (Create)",
+                tried_selectors=sel_list,
+            )
+            raise FlowPortError(
+                f"找不到 Create / 生成 按钮（账号 locale 可能未覆盖）— 已试 "
+                f"{len(sel_list)} 种语言变体均超时。{summary}。"
+                f"请把这条信息发给开发，下次发版补上对应文本。"
+                f"last err: {last_err}"
+            )
 
         # The "Notice / I agree" dialog typically appears within ~500ms of
         # clicking Create on the first round. Sweep twice so we catch it

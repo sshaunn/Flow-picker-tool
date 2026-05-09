@@ -173,7 +173,32 @@ selectors:
 
   # The "Create" button with the arrow_forward Material Symbol.
   # The other on-page "Create" is the model-picker (icon: add_2).
-  generate_button: 'button:has-text("arrow_forward"):has-text("Create")'
+  # Generate / Create submit button. ``arrow_forward`` is the Material
+  # Symbols ligature (locale-independent), so the FIRST entry is the
+  # safest — it discriminates the submit button from any other ``Create``
+  # button on the page (e.g. "+ New project" sometimes also reads as
+  # "Create"). The remaining entries are language-specific fallbacks
+  # for cases where the page mounts another arrow_forward icon and we
+  # need the text to disambiguate. Order: icon-only → en → zh / SEA /
+  # JA / KO. The adapter tries each and falls back on timeout; on total
+  # failure ``_dump_visible_button_texts`` writes every visible button
+  # label to app.log AND the task error_message so the operator sees
+  # exactly what locale we missed.
+  generate_button:
+    - 'button:has-text("arrow_forward")'                      # icon-only (locale-free)
+    - 'button:has-text("arrow_forward"):has-text("Create")'   # en
+    - 'button:has-text("arrow_forward"):has-text("创建")'      # zh-CN
+    - 'button:has-text("arrow_forward"):has-text("建立")'      # zh-TW
+    - 'button:has-text("arrow_forward"):has-text("Tạo")'       # vi
+    - 'button:has-text("arrow_forward"):has-text("สร้าง")'      # th
+    - 'button:has-text("arrow_forward"):has-text("Buat")'      # id / ms
+    - 'button:has-text("arrow_forward"):has-text("Cipta")'     # ms alternate
+    - 'button:has-text("arrow_forward"):has-text("Gumawa")'    # tl/fil
+    - 'button:has-text("arrow_forward"):has-text("ဖန်တီး")'     # my
+    - 'button:has-text("arrow_forward"):has-text("បង្កើត")'     # km
+    - 'button:has-text("arrow_forward"):has-text("ສ້າງ")'       # lo
+    - 'button:has-text("arrow_forward"):has-text("作成")'      # ja
+    - 'button:has-text("arrow_forward"):has-text("만들기")'    # ko
 
   # Each candidate is rendered as a <video> inside Flow's virtualized list.
   # The Playwright adapter snapshots video src URLs *before* clicking
@@ -256,8 +281,12 @@ timeouts:
 # / TOS modals before letting paid models be used; cookie banners may
 # also appear after a fresh login. Selectors are tried in order; the first
 # *visible* match is clicked. Best-effort — none required.
+#
+# Translations span EN + zh-CN/TW + EAS/SEA. Customer's Flow privacy
+# notice on Vietnamese chrome reads "Tôi đồng ý" / "Tôi hiểu rồi", so
+# the English-only list let the modal block subsequent clicks.
 popup_dismiss_buttons:
-  # Common explicit-agreement buttons inside a modal dialog.
+  # ── EN (priority — most accounts see English at first launch).
   - 'div[role="dialog"] button:has-text("I agree")'
   - 'div[role="dialog"] button:has-text("Agree")'
   - 'div[role="dialog"] button:has-text("Accept")'
@@ -265,14 +294,55 @@ popup_dismiss_buttons:
   - 'div[role="dialog"] button:has-text("Got it")'
   - 'div[role="dialog"] button:has-text("OK")'
   - 'div[role="dialog"] button:has-text("Confirm")'
-  # "What's new" / onboarding / changelog modal — Flow ships a "Get
-  # started" CTA the first time a project is opened in a fresh session.
   - 'div[role="dialog"] button:has-text("Get started")'
+  # ── zh
+  - 'div[role="dialog"] button:has-text("我同意")'
+  - 'div[role="dialog"] button:has-text("同意")'
+  - 'div[role="dialog"] button:has-text("接受")'
+  - 'div[role="dialog"] button:has-text("继续")'
+  - 'div[role="dialog"] button:has-text("繼續")'
+  - 'div[role="dialog"] button:has-text("知道了")'
+  - 'div[role="dialog"] button:has-text("我知道了")'
+  - 'div[role="dialog"] button:has-text("确定")'
+  - 'div[role="dialog"] button:has-text("確定")'
+  - 'div[role="dialog"] button:has-text("开始使用")'
+  # ── vi
+  - 'div[role="dialog"] button:has-text("Tôi đồng ý")'
+  - 'div[role="dialog"] button:has-text("Đồng ý")'
+  - 'div[role="dialog"] button:has-text("Tiếp tục")'
+  - 'div[role="dialog"] button:has-text("Đã hiểu")'
+  - 'div[role="dialog"] button:has-text("Tôi hiểu rồi")'
+  - 'div[role="dialog"] button:has-text("Bắt đầu")'
+  # ── th
+  - 'div[role="dialog"] button:has-text("ฉันยอมรับ")'
+  - 'div[role="dialog"] button:has-text("ยอมรับ")'
+  - 'div[role="dialog"] button:has-text("ตกลง")'
+  - 'div[role="dialog"] button:has-text("ดำเนินการต่อ")'
+  - 'div[role="dialog"] button:has-text("เข้าใจแล้ว")'
+  # ── id / ms
+  - 'div[role="dialog"] button:has-text("Saya setuju")'
+  - 'div[role="dialog"] button:has-text("Setuju")'
+  - 'div[role="dialog"] button:has-text("Lanjutkan")'
+  - 'div[role="dialog"] button:has-text("Teruskan")'
+  - 'div[role="dialog"] button:has-text("Mengerti")'
+  - 'div[role="dialog"] button:has-text("Faham")'
+  # ── tl/fil
+  - 'div[role="dialog"] button:has-text("Sumasang-ayon ako")'
+  - 'div[role="dialog"] button:has-text("Magpatuloy")'
+  - 'div[role="dialog"] button:has-text("OK na")'
+  # ── ja / ko
+  - 'div[role="dialog"] button:has-text("同意します")'
+  - 'div[role="dialog"] button:has-text("続行")'
+  - 'div[role="dialog"] button:has-text("わかりました")'
+  - 'div[role="dialog"] button:has-text("동의")'
+  - 'div[role="dialog"] button:has-text("계속")'
+  - 'div[role="dialog"] button:has-text("확인")'
+  # ── EN: skip / dismiss CTAs (no-thanks variants)
   - 'div[role="dialog"] button:has-text("Skip")'
   - 'div[role="dialog"] button:has-text("Maybe later")'
   - 'div[role="dialog"] button:has-text("No thanks")'
-  # Cookie banners (Google's standard "Accept all" pattern).
+  # ── Cookie banners (locale-independent aria-label pattern + EN text).
   - 'button[aria-label*="ccept" i]'
   - 'button:has-text("Accept all")'
-  # Radix AlertDialog action button.
+  # ── Radix AlertDialog action button (text-free fallback).
   - '[role="alertdialog"] button:not([aria-label*="ancel" i]):not(:has-text("Cancel"))'
